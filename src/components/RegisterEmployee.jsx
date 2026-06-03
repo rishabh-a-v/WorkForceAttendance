@@ -118,8 +118,8 @@ export default function RegisterEmployee() {
       
       const constraints = {
         video: {
-          width: 640,
-          height: 480
+          width: { ideal: 640 },
+          height: { ideal: 480 }
         }
       };
 
@@ -368,8 +368,8 @@ export default function RegisterEmployee() {
       
       const constraints = {
         video: {
-          width: 640,
-          height: 480
+          width: { ideal: 640 },
+          height: { ideal: 480 }
         }
       };
 
