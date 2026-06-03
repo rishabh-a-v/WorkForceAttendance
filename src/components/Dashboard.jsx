@@ -471,17 +471,17 @@ export default function Dashboard() {
           <table className="w-full border-collapse text-left text-xs">
             <thead className="bg-dark-950/80 sticky top-0 border-b border-dark-900/80 text-dark-400 font-semibold">
               <tr>
-                <th className="p-4 hidden xl:table-cell">Record ID</th>
-                <th className="p-4">Employee</th>
-                <th className="p-4">Check-In Time</th>
-                <th className="p-4">Check-Out Time</th>
-                <th className="p-4 hidden md:table-cell">Accuracy</th>
-                <th className="p-4 hidden lg:table-cell">Quality</th>
-                <th className="p-4 hidden lg:table-cell">Liveness</th>
-                <th className="p-4 hidden lg:table-cell">Similarity</th>
-                <th className="p-4 hidden sm:table-cell">GPS Verification</th>
-                <th className="p-4">Status</th>
-                <th className="p-4 text-right">Actions</th>
+                <th className="p-4 whitespace-nowrap">Record ID</th>
+                <th className="p-4 whitespace-nowrap">Employee</th>
+                <th className="p-4 whitespace-nowrap">Check-In Time</th>
+                <th className="p-4 whitespace-nowrap">Check-Out Time</th>
+                <th className="p-4 whitespace-nowrap">Accuracy</th>
+                <th className="p-4 whitespace-nowrap">Quality</th>
+                <th className="p-4 whitespace-nowrap">Liveness</th>
+                <th className="p-4 whitespace-nowrap">Similarity</th>
+                <th className="p-4 whitespace-nowrap">GPS Verification</th>
+                <th className="p-4 whitespace-nowrap">Status</th>
+                <th className="p-4 text-right whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-dark-900/40 text-dark-200">
@@ -491,7 +491,7 @@ export default function Dashboard() {
                 
                 return (
                   <tr key={record.id} className="hover:bg-dark-900/20 transition duration-100">
-                    <td className="p-4 font-mono font-bold text-dark-400 hidden xl:table-cell">{record.id}</td>
+                    <td className="p-4 font-mono font-bold text-dark-400 whitespace-nowrap">{record.id}</td>
                     <td className="p-4">
                       <div className="flex items-center space-x-2.5">
                         <div className="relative flex-shrink-0">
@@ -505,16 +505,16 @@ export default function Dashboard() {
                         </div>
                       </div>
                     </td>
-                    <td className="p-4 font-medium">
+                    <td className="p-4 font-medium whitespace-nowrap">
                       {checkInDate.toLocaleDateString()} • {checkInDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                     </td>
-                    <td className="p-4 font-medium text-dark-400">
+                    <td className="p-4 font-medium text-dark-400 whitespace-nowrap">
                       {checkOutDate 
                         ? `${checkOutDate.toLocaleDateString()} • ${checkOutDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` 
                         : <span className="text-[10px] bg-brand-500/10 border border-brand-500/20 text-brand-400 px-2 py-0.5 rounded-full font-bold">Active Shift</span>
                       }
                     </td>
-                    <td className="p-4 hidden md:table-cell">
+                    <td className="p-4 whitespace-nowrap">
                       <div className="flex items-center space-x-1.5">
                         <span className={`font-bold ${
                           record.confidence >= 80 
@@ -537,16 +537,16 @@ export default function Dashboard() {
                         </div>
                       </div>
                     </td>
-                    <td className={`p-4 font-bold ${record.qualityScore >= 80 ? 'text-emerald-400' : 'text-amber-500'} hidden lg:table-cell`}>
+                    <td className={`p-4 font-bold ${record.qualityScore >= 80 ? 'text-emerald-400' : 'text-amber-500'} whitespace-nowrap`}>
                       {record.qualityScore !== undefined ? `${record.qualityScore}%` : 'N/A'}
                     </td>
-                    <td className={`p-4 font-bold ${record.livenessScore >= 75 ? 'text-emerald-400' : 'text-rose-450'} hidden lg:table-cell`}>
+                    <td className={`p-4 font-bold ${record.livenessScore >= 75 ? 'text-emerald-400' : 'text-amber-500'} whitespace-nowrap`}>
                       {record.livenessScore !== undefined ? `${record.livenessScore}%` : 'N/A'}
                     </td>
-                    <td className={`p-4 font-bold ${record.similarityScore >= 80 ? 'text-emerald-400' : 'text-amber-500'} hidden lg:table-cell`}>
+                    <td className={`p-4 font-bold ${record.similarityScore >= 80 ? 'text-emerald-400' : 'text-amber-500'} whitespace-nowrap`}>
                       {record.similarityScore !== undefined ? `${record.similarityScore}%` : 'N/A'}
                     </td>
-                    <td className="p-4 hidden sm:table-cell">
+                    <td className="p-4 whitespace-nowrap">
                       <div className="flex flex-col space-y-1">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border w-max ${
                           record.attendanceStatus === 'Valid Location'

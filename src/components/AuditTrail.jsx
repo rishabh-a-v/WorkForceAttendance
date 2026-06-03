@@ -117,19 +117,19 @@ export default function AuditTrail() {
           <table className="w-full border-collapse text-left text-xs">
             <thead className="bg-dark-950/80 sticky top-0 border-b border-dark-900/80 text-dark-400 font-semibold z-10">
               <tr>
-                <th className="p-4 hidden xl:table-cell">Log ID</th>
-                <th className="p-4">Event Type</th>
-                <th className="p-4">Actioning User</th>
-                <th className="p-4">Timestamp</th>
-                <th className="p-4 hidden md:table-cell">Source IP</th>
-                <th className="p-4">Compliance Details</th>
-                <th className="p-4 text-center hidden lg:table-cell">Payload</th>
+                <th className="p-4 whitespace-nowrap">Log ID</th>
+                <th className="p-4 whitespace-nowrap">Event Type</th>
+                <th className="p-4 whitespace-nowrap">Actioning User</th>
+                <th className="p-4 whitespace-nowrap">Timestamp</th>
+                <th className="p-4 whitespace-nowrap">Source IP</th>
+                <th className="p-4 whitespace-nowrap">Compliance Details</th>
+                <th className="p-4 text-center whitespace-nowrap">Payload</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-dark-900/40 text-dark-200">
               {filteredLogs.slice().reverse().map((log) => (
                 <tr key={log.id} className="hover:bg-dark-900/10 transition">
-                  <td className="p-4 font-mono font-bold text-brand-400 hidden xl:table-cell">{log.id}</td>
+                  <td className="p-4 font-mono font-bold text-brand-400 whitespace-nowrap">{log.id}</td>
                   <td className="p-4">
                     <span className="px-2.5 py-0.5 bg-dark-900 border border-dark-800 rounded-md text-[10px] font-bold text-dark-300 uppercase tracking-wider">
                       {log.actionType}
@@ -139,7 +139,7 @@ export default function AuditTrail() {
                   <td className="p-4 font-medium">
                     {new Date(log.timestamp).toLocaleString()}
                   </td>
-                  <td className="p-4 font-mono text-dark-400 flex items-center space-x-1 hidden md:table-cell">
+                  <td className="p-4 font-mono text-dark-400 whitespace-nowrap">
                     <div className="flex items-center space-x-1">
                       <Server className="h-3 w-3 text-dark-500" />
                       <span>{log.ipAddress}</span>
@@ -148,7 +148,7 @@ export default function AuditTrail() {
                   <td className="p-4 text-dark-300 font-medium leading-relaxed max-w-sm truncate" title={log.remarks}>
                     {log.remarks}
                   </td>
-                  <td className="p-4 text-center hidden lg:table-cell">
+                  <td className="p-4 text-center whitespace-nowrap">
                     {(log.oldValue || log.newValue) ? (
                       <button
                         onClick={() => setActiveLogDetail(log)}
