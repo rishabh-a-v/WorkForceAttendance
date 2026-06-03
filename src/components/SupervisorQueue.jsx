@@ -34,8 +34,23 @@ export default function SupervisorQueue({ onActionTriggered }) {
   // Biometric comparison state
   const [activeComparison, setActiveComparison] = useState(null);
 
+  const loadDatabase = () => {
+    const allAttendance = dbService.getAttendance();
+    const reqReviews = allAttendance.filter(a => a.verificationStatus === 'Verification Required');
+    setQueueItems(reqReviews);
+    setEmployees(dbService.getEmployees());
+    setPhotos(dbService.getPhotos());
+    
+    if (reqReviews.length > 0) {
+      handleSelectRecord(reqReviews[0], allAttendance);
+    } else {
+      setSelectedRecord(null);
+    }
+  };
+
   useEffect(() => {
     loadDatabase();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -80,19 +95,7 @@ export default function SupervisorQueue({ onActionTriggered }) {
     };
   }, [selectedRecord, selectedEmpId, employees, photos]);
 
-  const loadDatabase = () => {
-    const allAttendance = dbService.getAttendance();
-    const reqReviews = allAttendance.filter(a => a.verificationStatus === 'Verification Required');
-    setQueueItems(reqReviews);
-    setEmployees(dbService.getEmployees());
-    setPhotos(dbService.getPhotos());
-    
-    if (reqReviews.length > 0) {
-      handleSelectRecord(reqReviews[0], allAttendance);
-    } else {
-      setSelectedRecord(null);
-    }
-  };
+
 
   const handleSelectRecord = (record, allLogs = null) => {
     setSelectedRecord(record);
