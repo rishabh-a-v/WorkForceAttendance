@@ -205,10 +205,10 @@ export default function Login({ onLoginSuccess, initialTab = 'admin' }) {
 
           <p className="text-[10px] text-dark-500 text-center leading-normal pt-2">
             {activeTab === 'admin'
-              ? 'Default: Username "admin" / Password "admin123".'
+              ? 'Authorized administrators only. System actions are strictly audited.'
               : activeTab === 'supervisor'
               ? 'Supervisor accounts are assigned by Admin during employee registration.'
-              : 'Default employee password is "123456" unless changed.'
+              : 'Contact your administrator if you forgot your credentials.'
             }
           </p>
         </form>
