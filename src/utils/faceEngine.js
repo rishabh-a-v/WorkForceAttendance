@@ -654,16 +654,16 @@ export const compareBiometrics = (registered, captured) => {
   }
 
   const tolerances = {
-    pupilDistance: 4.5,
-    noseRidgeAngle: 5.0,
-    faceAspect: 0.12,
-    jawlineCurvature: 0.10,
-    chromaSpectral: 8.0,
-    eyebrowArch: 0.15,
-    mouthWidth: 8.0,
-    skinMelanin: 30,
-    foreheadContrast: 0.08,
-    faceSymmetry: 0.12
+    pupilDistance: 9.5,         // Loosened for varying lens FOV
+    noseRidgeAngle: 12.0,       // Loosened for mobile tilt angles
+    faceAspect: 0.35,           // Loosened for different crop aspect ratios
+    jawlineCurvature: 0.25,     // Loosened for lens distortion
+    chromaSpectral: 20.0,       // Loosened for auto-white balance differences
+    eyebrowArch: 0.30,          // Loosened for expressions
+    mouthWidth: 15.0,           // Loosened for scaling drift
+    skinMelanin: 50,            // Loosened for mobile exposure shifts
+    foreheadContrast: 0.18,     // Loosened for glare/lighting
+    faceSymmetry: 0.25          // Loosened for off-angle selfies
   };
 
   const regEyebrowArch = registered.eyebrowArch !== undefined ? registered.eyebrowArch : 1.25;
@@ -851,12 +851,20 @@ export const recognizeFace = async (capturedCanvasOrDescriptor, registeredEmploy
     }
   });
   
-  // Map raw Cosine Similarity directly to confidence score percentage (0-100%)
+  // Map raw Cosine Similarity (typically 0.40 - 0.70 for same-identity across mobile lenses) to confidence score percentage
   const similarityScore = maxCosine;
-  let neuralScore = Math.max(0, Math.min(100, Math.round(similarityScore * 100)));
+  let neuralScore;
+  if (similarityScore >= 0.40) {
+    // Map 0.40 - 0.75+ to 75% - 99%
+    neuralScore = Math.round(75 + ((Math.min(0.75, similarityScore) - 0.40) / 0.35) * 24);
+  } else {
+    // Map 0.0 - 0.39 to 0% - 74%
+    neuralScore = Math.round((Math.max(0, similarityScore) / 0.40) * 74);
+  }
+  neuralScore = Math.max(0, Math.min(99, neuralScore));
   
-  if (similarityScore < 0.60) {
-    bestMatch = null; // Unregistered face matches are blocked below 0.60 similarity
+  if (similarityScore < 0.40) {
+    bestMatch = null; // Unregistered face matches are blocked below 0.40 similarity
   }
   
   if (!bestMatch) {
