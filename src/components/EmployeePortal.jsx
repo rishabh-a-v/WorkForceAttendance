@@ -59,6 +59,9 @@ export default function EmployeePortal({ currentUser, onLogout }) {
   
   const rollingFramesRef = useRef([]);
   const scanLoopActive = useRef(false);
+  const gpsDataRef = useRef(gpsData);
+  const isCheckInRef = useRef(isCheckIn);
+  const activeEmployeeRef = useRef(activeEmployee);
 
   useEffect(() => {
     gpsDataRef.current = gpsData;
@@ -87,10 +90,6 @@ export default function EmployeePortal({ currentUser, onLogout }) {
   // GPS State
   const [gpsData, setGpsData] = useState(null);
   const [gpsLoading, setGpsLoading] = useState(false);
-  
-  const gpsDataRef = useRef(gpsData);
-  const isCheckInRef = useRef(isCheckIn);
-  const activeEmployeeRef = useRef(activeEmployee);
 
   // Change Password States
   const [currentPassword, setCurrentPassword] = useState('');
@@ -246,8 +245,8 @@ export default function EmployeePortal({ currentUser, onLogout }) {
       
       const constraints = {
         video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 }
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
         }
       };
 

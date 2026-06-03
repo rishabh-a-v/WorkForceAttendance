@@ -34,13 +34,6 @@ export default function SupervisorQueue({ onActionTriggered }) {
   // Biometric comparison state
   const [activeComparison, setActiveComparison] = useState(null);
 
-  const handleSelectRecord = (record, allLogs = null) => {
-    setSelectedRecord(record);
-    setSelectedEmpId(record.employeeId !== 'UNKNOWN' ? record.employeeId : '');
-    setSearchEmpQuery(record.employeeId !== 'UNKNOWN' ? record.employeeName : '');
-    setComplianceNotes('');
-  };
-
   const loadDatabase = () => {
     const allAttendance = dbService.getAttendance();
     const reqReviews = allAttendance.filter(a => a.verificationStatus === 'Verification Required');
@@ -104,7 +97,12 @@ export default function SupervisorQueue({ onActionTriggered }) {
 
 
 
-
+  const handleSelectRecord = (record, allLogs = null) => {
+    setSelectedRecord(record);
+    setSelectedEmpId(record.employeeId !== 'UNKNOWN' ? record.employeeId : '');
+    setSearchEmpQuery(record.employeeId !== 'UNKNOWN' ? record.employeeName : '');
+    setComplianceNotes('');
+  };
 
   const handleDropdownSelect = (emp) => {
     setSelectedEmpId(emp.id);
