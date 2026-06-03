@@ -170,7 +170,10 @@ export default function Sidebar({ activeTab, setActiveTab, pendingReviewsCount, 
       </nav>
 
       {/* Footer */}
-      <div className="p-4 border-t border-dark-900/60 text-center space-y-2">
+      <div 
+        className="p-4 border-t border-dark-900/60 text-center space-y-2"
+        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+      >
         <button
           type="button"
           onClick={() => onLogout?.()}

@@ -58,7 +58,7 @@ export default function Login({ onLoginSuccess, initialTab = 'admin' }) {
   const activeColor = activeTab === 'supervisor' ? 'violet' : 'brand';
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-dark-950 bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950 p-4 select-none relative overflow-hidden">
+    <div className="min-h-[100dvh] w-full flex items-center justify-center bg-dark-950 bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950 p-4 select-none relative overflow-hidden" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
       
       {/* Background ambient glowing nodes */}
       <div className="absolute top-1/4 left-1/4 w-80 h-80 rounded-full bg-brand-500/10 blur-[120px] animate-pulse pointer-events-none"></div>

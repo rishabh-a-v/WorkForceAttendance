@@ -123,9 +123,12 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen w-screen bg-dark-950 overflow-hidden text-dark-50 select-none flex-col md:flex-row">
+    <div className="flex h-[100dvh] w-screen bg-dark-950 overflow-hidden text-dark-50 select-none flex-col md:flex-row">
       {/* Mobile Top Header */}
-      <div className="flex md:hidden items-center justify-between px-4 py-3 bg-dark-950 border-b border-dark-900 z-30">
+      <div 
+        className="flex md:hidden items-center justify-between px-4 py-3 bg-dark-950 border-b border-dark-900 z-30"
+        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
+      >
         <div className="flex items-center space-x-2">
           <div className="p-1.5 rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-400">
             {portalRole === 'supervisor' ? <Users className="h-4 w-4 text-violet-400" /> : <Shield className="h-4 w-4 text-brand-400" />}
