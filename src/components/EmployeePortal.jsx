@@ -62,6 +62,7 @@ export default function EmployeePortal({ currentUser, onLogout }) {
   const gpsDataRef = useRef(gpsData);
   const isCheckInRef = useRef(isCheckIn);
   const activeEmployeeRef = useRef(activeEmployee);
+  const logCountRef = useRef(0);
 
   useEffect(() => {
     gpsDataRef.current = gpsData;
