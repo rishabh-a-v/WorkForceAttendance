@@ -117,7 +117,10 @@ export default function RegisterEmployee() {
       setIsCameraActive(true);
       
       const constraints = {
-        video: {}
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
       };
 
       if (currentFacingMode === 'user') {
@@ -364,7 +367,10 @@ export default function RegisterEmployee() {
       setIsSampleCameraActive(true);
       
       const constraints = {
-        video: {}
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
       };
 
       if (currentFacingMode === 'user') {
