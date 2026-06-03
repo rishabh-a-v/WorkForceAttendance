@@ -647,14 +647,41 @@ export default function SupervisorPortal({ currentUser, onLogout }) {
 
   const handleSubmitGroupLogs = () => {
     let count = 0;
+    const logs = dbService.getAttendance();
+    const today = new Date().toDateString();
+    
     groupDetectedFaces.forEach(f => {
       if (f.empId !== 'UNKNOWN') {
-        dbService.saveAttendance({ id: 'ATT' + Math.random(), employeeId: f.empId, checkInTime: new Date().toISOString() });
-        count++;
+        if (isGroupCheckInRef.current) {
+          const alreadyIn = logs.some(l => l.employeeId === f.empId && new Date(l.checkInTime).toDateString() === today);
+          if (!alreadyIn) {
+            dbService.saveAttendance({ 
+              id: 'ATT' + Math.floor(1000 + Math.random() * 9000), 
+              employeeId: f.empId, 
+              employeeName: employees.find(e => e.id === f.empId)?.name || 'Unknown',
+              checkInTime: new Date().toISOString(),
+              checkOutTime: null,
+              confidence: f.confidence,
+              verificationStatus: 'Approved',
+              attendanceStatus: 'Valid Location'
+            });
+            count++;
+          }
+        } else {
+          // Process checkout
+          const activeCheckIn = logs.find(l => l.employeeId === f.empId && !l.checkOutTime);
+          if (activeCheckIn) {
+            dbService.updateAttendance(activeCheckIn.id, { 
+              checkOutTime: new Date().toISOString() 
+            });
+            count++;
+          }
+        }
       }
     });
     setGroupSuccessCount(count);
     setGroupDetectedFaces([]);
+    showToast(`${isGroupCheckInRef.current ? 'Checked-In' : 'Checked-Out'} ${count} employees in group.`);
   };
 
   return (
@@ -773,6 +800,55 @@ export default function SupervisorPortal({ currentUser, onLogout }) {
               </div>
             </div>
             <div className="space-y-4">
+              {/* Shift Registry Dispatcher Toggle */}
+              <div className="glass-panel p-6 rounded-2xl border border-dark-800/60 space-y-5">
+                <div>
+                  <h3 className="text-sm font-display font-extrabold text-white">Shift Registry Dispatcher</h3>
+                  <p className="text-[10px] text-dark-400 mt-1">Define check-in/out mode and save attendance to shift log records.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-dark-400 uppercase">Clocking Mode Action</label>
+                  <div className="grid grid-cols-2 bg-dark-950 p-1 rounded-xl border border-dark-850">
+                    <button
+                      type="button"
+                      onClick={() => { 
+                        setIsSelfCheckIn(true); 
+                        setSelfSuccessMsg(''); 
+                        setSelfErrorMsg(''); 
+                        setSelfScanImage(null); 
+                        stopSelfCamera(); 
+                      }}
+                      className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition ${
+                        isSelfCheckIn 
+                          ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-extrabold shadow-sm' 
+                          : 'text-dark-400 hover:text-white'
+                      }`}
+                    >
+                      <UserCheck className="h-4 w-4" />
+                      <span>Clock In Shift</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { 
+                        setIsSelfCheckIn(false); 
+                        setSelfSuccessMsg(''); 
+                        setSelfErrorMsg(''); 
+                        setSelfScanImage(null); 
+                        stopSelfCamera(); 
+                      }}
+                      className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition ${
+                        !isSelfCheckIn 
+                          ? 'bg-brand-500/10 border border-brand-500/20 text-brand-400 font-extrabold shadow-sm' 
+                          : 'text-dark-400 hover:text-white'
+                      }`}
+                    >
+                      <UserMinus className="h-4 w-4" />
+                      <span>Clock Out Shift</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
               <div className="glass-panel p-5 rounded-2xl border border-dark-800/60 space-y-4">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-dark-400">Timecard Receipts</h3>
                 {selfErrorMsg && <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-450 rounded-xl text-xs">{selfErrorMsg}</div>}

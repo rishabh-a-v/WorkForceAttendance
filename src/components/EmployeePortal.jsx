@@ -731,36 +731,7 @@ export default function EmployeePortal({ currentUser, onLogout }) {
                     </div>
                   </div>
 
-                  <div className="flex bg-dark-950 p-0.5 rounded-lg border border-dark-850">
-                    <button
-                      onClick={() => {
-                        setIsCheckIn(true);
-                        setSuccessMsg('');
-                        setErrorMsg('');
-                        setScanImage(null);
-                        handleStopCamera();
-                      }}
-                      className={`px-3 py-1 rounded-md text-[10px] font-bold transition ${
-                        isCheckIn ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-dark-400 hover:text-white'
-                      }`}
-                    >
-                      Clock In
-                    </button>
-                    <button
-                      onClick={() => {
-                        setIsCheckIn(false);
-                        setSuccessMsg('');
-                        setErrorMsg('');
-                        setScanImage(null);
-                        handleStopCamera();
-                      }}
-                      className={`px-3 py-1 rounded-md text-[10px] font-bold transition ${
-                        !isCheckIn ? 'bg-brand-500/10 text-brand-400 border border-brand-500/20' : 'text-dark-400 hover:text-white'
-                      }`}
-                    >
-                      Clock Out
-                    </button>
-                  </div>
+
                 </div>
 
                 {/* Viewport Box */}
@@ -862,6 +833,56 @@ export default function EmployeePortal({ currentUser, onLogout }) {
 
             {/* Quick Status receipts & notifications */}
             <div className="space-y-4">
+              
+              {/* Shift Registry Dispatcher Toggle */}
+              <div className="glass-panel p-6 rounded-2xl border border-dark-800/60 space-y-5">
+                <div>
+                  <h3 className="text-sm font-display font-extrabold text-white">Shift Registry Dispatcher</h3>
+                  <p className="text-[10px] text-dark-400 mt-1">Define check-in/out mode and save attendance to shift log records.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-dark-400 uppercase">Clocking Mode Action</label>
+                  <div className="grid grid-cols-2 bg-dark-950 p-1 rounded-xl border border-dark-850">
+                    <button
+                      type="button"
+                      onClick={() => { 
+                        setIsCheckIn(true); 
+                        setSuccessMsg(''); 
+                        setErrorMsg(''); 
+                        setScanImage(null); 
+                        handleStopCamera(); 
+                      }}
+                      className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition ${
+                        isCheckIn 
+                          ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-extrabold shadow-sm' 
+                          : 'text-dark-400 hover:text-white'
+                      }`}
+                    >
+                      <UserCheck className="h-4 w-4" />
+                      <span>Clock In Shift</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { 
+                        setIsCheckIn(false); 
+                        setSuccessMsg(''); 
+                        setErrorMsg(''); 
+                        setScanImage(null); 
+                        handleStopCamera(); 
+                      }}
+                      className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition ${
+                        !isCheckIn 
+                          ? 'bg-brand-500/10 border border-brand-500/20 text-brand-400 font-extrabold shadow-sm' 
+                          : 'text-dark-400 hover:text-white'
+                      }`}
+                    >
+                      <UserMinus className="h-4 w-4" />
+                      <span>Clock Out Shift</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
               <div className="glass-panel p-5 rounded-2xl border border-dark-800/60 space-y-4">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-dark-400">Timecard Receipts</h3>
 
