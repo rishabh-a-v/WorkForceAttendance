@@ -73,7 +73,7 @@ export const dbService = {
 
     // Set custom avatar if none provided
     if (!employee.avatar) {
-      employee.avatar = AVATARS[employee.id] || AVATARS.EMP001;
+      employee.avatar = AVATARS.UNKNOWN;
     }
 
     // Initialize multi-sample arrays if not present

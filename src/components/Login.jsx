@@ -156,7 +156,7 @@ export default function Login({ onLoginSuccess, initialTab = 'admin' }) {
               ) : (
                 <input
                   type="text"
-                  placeholder={activeTab === 'supervisor' ? 'e.g. EMP001 or Jane Doe' : 'e.g. EMP001 or John Doe'}
+                  placeholder={activeTab === 'supervisor' ? 'e.g. Jane Doe' : 'e.g. John Doe'}
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="w-full bg-dark-950 border border-dark-800 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-brand-500"

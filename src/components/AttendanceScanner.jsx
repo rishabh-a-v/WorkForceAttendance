@@ -37,21 +37,7 @@ import {
   getNormalFrontCameraDeviceId
 } from '../utils/faceEngine';
 
-// Standard high-quality mock group templates representing team shifts
-const TEAM_TEMPLATES = [
-  {
-    id: 'SHIFT_A',
-    name: 'Shift A - Packing Packers (4 Faces Preset)',
-    img: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" fill="none"><rect width="800" height="450" fill="%230f172a"/><rect x="80" y="80" width="140" height="240" rx="16" fill="%231e293b" stroke="%23334155" stroke-width="2"/><rect x="250" y="80" width="140" height="240" rx="16" fill="%231e293b" stroke="%23334155" stroke-width="2"/><rect x="420" y="80" width="140" height="240" rx="16" fill="%231e293b" stroke="%23334155" stroke-width="2"/><rect x="590" y="80" width="140" height="240" rx="16" fill="%231e293b" stroke="%23334155" stroke-width="2"/><circle cx="150" cy="150" r="40" fill="%2338bdf8"/><circle cx="320" cy="150" r="40" fill="%23f472b6"/><circle cx="490" cy="150" r="40" fill="%2394a3b8"/><circle cx="660" cy="150" r="40" fill="%2334d399"/><text x="400" y="380" fill="%2364748b" font-size="16" font-family="sans-serif" font-weight="bold" text-anchor="middle">PACKING LINE TEAM A</text></svg>',
-    faces: [
-      { id: 'F1', name: 'Worker 1', empId: 'EMP001', confidence: 98, status: 'Recognized', box: { x: 100, y: 100, w: 100, h: 100 }, avatar: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none"><circle cx="50" cy="50" r="50" fill="%231e293b"/><path d="M50 82c16.5 0 30-10.5 30-22c0-1.5-1-4.5-3-5.5c-3-1.5-7-.5-10 .5c-5 1.5-12 1.5-17 0c-3-1-7-2-10-.5C37 56 36 59 36 60.5C36 71.5 49.5 82 50 82z" fill="%230c85e9"/><circle cx="50" cy="40" r="18" fill="%2338bdf8"/><path d="M50 25c6 0 10 4 10 9s-4 7-10 7s-10-2-10-7s4-9 10-9z" fill="%230284c7"/></svg>' },
-      { id: 'F2', name: 'Worker 2', empId: 'EMP002', confidence: 95, status: 'Recognized', box: { x: 270, y: 100, w: 100, h: 100 }, avatar: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none"><circle cx="50" cy="50" r="50" fill="%231e293b"/><path d="M50 82c16.5 0 30-10.5 30-22c0-1.5-1-4.5-3-5.5c-3-1.5-7-.5-10 .5c-5 1.5-12 1.5-17 0c-3-1-7-2-10-.5C37 56 36 59 36 60.5C36 71.5 49.5 82 50 82z" fill="%23ec4899"/><circle cx="50" cy="40" r="18" fill="%23f472b6"/><path d="M50 25c6 0 9 4 9 9s-3 7-9 7s-9-2-9-7s3-9 9-9z" fill="%23db2777"/></svg>' },
-      { id: 'F3', name: 'Unidentified Face', empId: 'UNKNOWN', confidence: 42, status: 'Manual Review', box: { x: 440, y: 100, w: 100, h: 100 }, avatar: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none"><circle cx="50" cy="50" r="50" fill="%23334155"/><path d="M50 82c16.5 0 30-10.5 30-22c0-1.5-1-4.5-3-5.5c-3-1.5-7-.5-10 .5c-5 1.5-12 1.5-17 0c-3-1-7-2-10-.5C37 56 36 59 36 60.5C36 71.5 49.5 82 50 82z" fill="%2364748b"/><circle cx="50" cy="40" r="18" fill="%2394a3b8"/><path d="M47 28h6v12h-6zm0 16h6v6h-6z" fill="%230f172a"/></svg>' },
-      { id: 'F4', name: 'Worker 3', empId: 'EMP003', confidence: 78, status: 'Manual Review', box: { x: 610, y: 100, w: 100, h: 100 }, avatar: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none"><circle cx="50" cy="50" r="50" fill="%231e293b"/><path d="M50 82c16.5 0 30-10.5 30-22c0-1.5-1-4.5-3-5.5c-3-1.5-7-.5-10 .5c-5 1.5-12 1.5-17 0c-3-1-7-2-10-.5C37 56 36 59 36 60.5C36 71.5 49.5 82 50 82z" fill="%2310b981"/><circle cx="50" cy="40" r="18" fill="%2334d399"/><path d="M50 25c6 0 10 4 10 9s-4 7-10 7s-10-2-10-7s4-9 10-9z" fill="%23059669"/></svg>' }
-    ]
-  }
-];
-
+// Removed mock data for deployment
 export default function AttendanceScanner() {
   const [employees, setEmployees] = useState([]);
   const [activeShiftEmployees, setActiveShiftEmployees] = useState([]);
@@ -59,8 +45,8 @@ export default function AttendanceScanner() {
   // App Config States
   const [scannerMode, setScannerMode] = useState('camera'); // 'camera' or 'manual'
   const [isCheckIn, setIsCheckIn] = useState(true); // check-in mode vs check-out mode
-  const [inputSource, setInputSource] = useState('webcam'); // 'webcam' or 'presets'
-  const [selectedTemplateIdx, setSelectedTemplateIdx] = useState('');
+
+
 
   // Camera & Scanning States
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -489,135 +475,6 @@ export default function AttendanceScanner() {
     } catch (err) {
       console.error(err);
       setTimeout(runGroupAutoScanLoop, 500);
-    }
-  };
-
-  const handleCaptureCamera = () => {
-    // Deprecated
-  };
-
-  const handleSelectTemplate = (idx) => {
-    setSelectedTemplateIdx(idx);
-    setScanImage(null);
-    setDetectedFaces([]);
-    setSuccessCount(null);
-    
-    if (idx === '') return;
-
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const img = new Image();
-    
-    img.onload = () => {
-      const isMobile = window.innerWidth < 768;
-      const targetW = isMobile ? 450 : 800;
-      const targetH = isMobile ? 600 : 450;
-      canvas.width = targetW;
-      canvas.height = targetH;
-      drawImageProp(ctx, img, 0, 0, targetW, targetH);
-      setScanImage(TEAM_TEMPLATES[idx].img);
-      
-      // Process preset templates
-      processFrame(canvas, TEAM_TEMPLATES[idx].img, true, idx);
-    };
-    img.src = TEAM_TEMPLATES[idx].img;
-  };
-
-  const processFrame = async (canvas, imageSrc, isPreset = false, activeIdx = selectedTemplateIdx) => {
-    if (!isPreset) return;
-    
-    setIsScanning(true);
-    setDetectedFaces([]);
-    setSuccessCount(null);
-
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    setIsScanning(false);
-    
-    const employeesDb = dbService.getEmployees();
-    let faces = [];
-
-    try {
-      const logs = dbService.getAttendance();
-      const today = new Date().toDateString();
-      
-      // Preset templates mapping (for testing shifts without multiple people)
-      faces = TEAM_TEMPLATES[activeIdx].faces.map((f, idx) => {
-        const empAtIdx = employeesDb[idx];
-        const matchedEmp = empAtIdx || employeesDb.find(e => e.id === f.empId);
-        const mockReport = compareBiometrics(
-          matchedEmp ? matchedEmp.biometrics : generateBiometrics(f.name, false),
-          generateBiometrics(f.name, f.empId === 'UNKNOWN')
-        );
-        
-        const alreadyCheckedIn = matchedEmp && logs.some(a => 
-          a.employeeId === matchedEmp.id && 
-          new Date(a.checkInTime).toDateString() === today
-        );
-        const alreadyCheckedOut = matchedEmp && logs.some(a => 
-          a.employeeId === matchedEmp.id && 
-          new Date(a.checkInTime).toDateString() === today &&
-          a.checkOutTime !== null
-        );
-
-        let status = 'Unregistered Person';
-        if (matchedEmp) {
-          if (isCheckIn && alreadyCheckedIn) {
-            status = 'Already Checked In';
-          } else if (!isCheckIn && !alreadyCheckedIn) {
-            status = 'No Active Check-In';
-          } else if (!isCheckIn && alreadyCheckedOut) {
-            status = 'Already Checked Out';
-          } else {
-            status = 'Recognized';
-          }
-        }
-
-        return {
-          ...f,
-          name: matchedEmp ? matchedEmp.name : (f.empId === 'UNKNOWN' ? 'Unidentified Face' : `Worker ${idx + 1}`),
-          empId: matchedEmp ? matchedEmp.id : 'UNKNOWN',
-          status,
-          avatar: matchedEmp ? matchedEmp.avatar : f.avatar,
-          qualityScore: 92,
-          livenessScore: 95,
-          similarityScore: 90,
-          biometricsReport: mockReport
-        };
-      });
-
-      setDetectedFaces(faces);
-      autoLogRecognizedFaces(faces);
-      
-      // Draw overlays on scanner canvas
-      const ctx = canvas.getContext('2d');
-      ctx.lineWidth = 3;
-      
-      faces.forEach(f => {
-        if (f.status === 'Recognized') {
-          ctx.strokeStyle = '#10b981';
-          ctx.fillStyle = '#10b981';
-        } else if (f.status === 'Manual Review') {
-          ctx.strokeStyle = '#f59e0b';
-          ctx.fillStyle = '#f59e0b';
-        } else if (f.status === 'Already Checked In' || f.status === 'Already Checked Out' || f.status === 'No Active Check-In') {
-          ctx.strokeStyle = '#3b82f6';
-          ctx.fillStyle = '#3b82f6';
-        } else {
-          ctx.strokeStyle = '#ef4444';
-          ctx.fillStyle = '#ef4444';
-        }
-        ctx.strokeRect(f.box.x, f.box.y, f.box.w, f.box.h);
-        ctx.font = 'bold 11px Inter, sans-serif';
-        const tagText = `${f.name} (${f.confidence}%)`;
-        const textWidth = ctx.measureText(tagText).width;
-        ctx.fillRect(f.box.x - 1, f.box.y - 18, textWidth + 12, 18);
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(tagText, f.box.x + 5, f.box.y - 5);
-      });
-    } catch (error) {
-      console.error('Error running processFrame scan:', error);
-      setErrorMsg('An error occurred during facial scanning.');
     }
   };
 
@@ -1060,38 +917,8 @@ export default function AttendanceScanner() {
                     <p className="text-[10px] text-dark-400 mt-0.5">Captures single or multiple worker identities side-by-side.</p>
                   </div>
                 </div>
-
-                {/* Input Type selection */}
-                <div className="flex items-center space-x-2 w-full sm:w-auto">
-                  <select
-                    value={inputSource}
-                    onChange={(e) => {
-                      setInputSource(e.target.value);
-                      handleStopCamera();
-                      setScanImage(null);
-                      setDetectedFaces([]);
-                      setSuccessCount(null);
-                    }}
-                    className="bg-dark-950 border border-dark-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none"
-                  >
-                    <option value="webcam">🎥 Webcam Camera</option>
-                    <option value="presets">🖼️ Preset Team Photos</option>
-                  </select>
-
-                  {inputSource === 'presets' && (
-                    <select
-                      value={selectedTemplateIdx}
-                      onChange={(e) => handleSelectTemplate(e.target.value)}
-                      className="bg-dark-950 border border-dark-800 rounded-xl px-3 py-1.5 text-xs text-brand-400 focus:outline-none"
-                    >
-                      <option value="">Select Team Photo...</option>
-                      {TEAM_TEMPLATES.map((t, idx) => (
-                        <option key={t.id} value={idx}>{t.name}</option>
-                      ))}
-                    </select>
-                  )}
-                </div>
               </div>
+
 
               {/* Viewport */}
               <div className="relative aspect-[3/4] md:aspect-[16/9] bg-dark-950 rounded-xl overflow-hidden border border-dark-850 flex items-center justify-center">
@@ -1114,7 +941,7 @@ export default function AttendanceScanner() {
                   </div>
                 )}
 
-                {inputSource === 'webcam' && isCameraActive && (
+                {isCameraActive && (
                   <>
                     <video 
                       ref={videoRef} 
@@ -1240,14 +1067,12 @@ export default function AttendanceScanner() {
                       <p className="text-xs font-semibold text-white">Scanner Standby Mode</p>
                       <p className="text-[10px] text-dark-400">Initialize webcam streams or select preset templates to run log scan.</p>
                     </div>
-                    {inputSource === 'webcam' && (
-                      <button
-                        onClick={handleStartCamera}
-                        className="px-5 py-2.5 bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold rounded-xl shadow-lg glow-blue transition"
-                      >
-                        Start Webcam Scanner
-                      </button>
-                    )}
+                    <button
+                      onClick={handleStartCamera}
+                      className="px-5 py-2.5 bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold rounded-xl shadow-lg glow-blue transition"
+                    >
+                      Start Webcam Scanner
+                    </button>
                   </div>
                 )}
               </div>
