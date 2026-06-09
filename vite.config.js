@@ -3,11 +3,12 @@ import react from '@vitejs/plugin-react'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [
     react(),
-    basicSsl()
-  ],
+    // Only use self-signed SSL locally (Vercel handles HTTPS in production)
+    command === 'serve' ? basicSsl() : null,
+  ].filter(Boolean),
   server: {
     allowedHosts: true,
     https: true,
@@ -19,5 +20,4 @@ export default defineConfig({
       }
     }
   }
-})
-
+}))
