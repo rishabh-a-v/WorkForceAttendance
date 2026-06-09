@@ -373,22 +373,20 @@ export default function EmployeePortal({ currentUser, onLogout }) {
     frameCanvas.width = 640;
     frameCanvas.height = 480;
     frameCanvas.getContext('2d').drawImage(canvas, 0, 0);
-    rollingFramesRef.current.push(frameCanvas);
-    if (rollingFramesRef.current.length > 5) {
-      rollingFramesRef.current.shift();
-    }
 
     try {
       const logs = dbService.getAttendance();
       const employeesDb = dbService.getEmployees();
 
-      // Detect faces in all rolling frames
-      const allFramesDetections = [];
-      for (let f = 0; f < rollingFramesRef.current.length; f++) {
-        const frameCanvas = rollingFramesRef.current[f];
-        const detections = await detectFacesInCanvas(frameCanvas);
-        allFramesDetections.push(detections);
+      // Detect faces in the new frame canvas
+      const newDetections = await detectFacesInCanvas(frameCanvas);
+      rollingFramesRef.current.push({ canvas: frameCanvas, detections: newDetections });
+      if (rollingFramesRef.current.length > 5) {
+        rollingFramesRef.current.shift();
       }
+
+      // Track detections across frames
+      const allFramesDetections = rollingFramesRef.current.map(f => f.detections);
 
       // Track detections across frames
       const tracks = [];
@@ -430,7 +428,7 @@ export default function EmployeePortal({ currentUser, onLogout }) {
         }));
 
         const qualityDetails = track.map((det) => {
-          const frameCanvas = rollingFramesRef.current ? rollingFramesRef.current[det.frameIdx] : null;
+          const frameCanvas = rollingFramesRef.current ? rollingFramesRef.current[det.frameIdx].canvas : null;
           if (!frameCanvas) {
             return { passed: false, reason: 'Invalid frame canvas reference', blur: 0, contrast: 0, brightness: 0 };
           }
@@ -519,7 +517,7 @@ export default function EmployeePortal({ currentUser, onLogout }) {
         });
 
         const bestDet = track[bestFrameIdx];
-        const bestFrameCanvas = rollingFramesRef.current ? rollingFramesRef.current[bestDet.frameIdx] : null;
+        const bestFrameCanvas = rollingFramesRef.current ? rollingFramesRef.current[bestDet.frameIdx].canvas : null;
         if (!bestFrameCanvas) {
           return null;
         }

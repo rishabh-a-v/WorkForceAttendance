@@ -290,21 +290,17 @@ export default function SupervisorPortal({ currentUser }) {
     tempCanvas.width = targetW;
     tempCanvas.height = targetH;
     tempCanvas.getContext('2d').drawImage(canvas, 0, 0);
-    groupRollingFramesRef.current.push(tempCanvas);
-    if (groupRollingFramesRef.current.length > 5) {
-      groupRollingFramesRef.current.shift();
-    }
-
     try {
+      const newDetections = await detectFacesInCanvas(tempCanvas);
+      groupRollingFramesRef.current.push({ canvas: tempCanvas, detections: newDetections });
+      if (groupRollingFramesRef.current.length > 5) {
+        groupRollingFramesRef.current.shift();
+      }
+
       const employeesDb = dbService.getEmployees();
       const logs = dbService.getAttendance();
 
-      const allFramesDetections = [];
-      for (let f = 0; f < groupRollingFramesRef.current.length; f++) {
-        const frameCanvas = groupRollingFramesRef.current[f];
-        const detections = await detectFacesInCanvas(frameCanvas);
-        allFramesDetections.push(detections);
-      }
+      const allFramesDetections = groupRollingFramesRef.current.map(f => f.detections);
 
       const tracks = [];
       allFramesDetections.forEach((detectionsInFrame, frameIdx) => {
@@ -343,7 +339,7 @@ export default function SupervisorPortal({ currentUser }) {
         }));
 
         const qualityDetails = track.map((det) => {
-          const frameCanvas = groupRollingFramesRef.current[det.frameIdx];
+          const frameCanvas = groupRollingFramesRef.current[det.frameIdx].canvas;
           return assessFaceQuality(frameCanvas, det.box, det.landmarks);
         });
 
@@ -429,7 +425,7 @@ export default function SupervisorPortal({ currentUser }) {
         });
 
         const bestDet = track[bestFrameIdx];
-        const bestFrameCanvas = groupRollingFramesRef.current[bestDet.frameIdx];
+        const bestFrameCanvas = groupRollingFramesRef.current[bestDet.frameIdx].canvas;
         const alignedCanvas = alignAndCropFace(bestFrameCanvas, bestDet.landmarks);
         const avatarBase64 = alignedCanvas.toDataURL('image/jpeg', 0.85);
 
