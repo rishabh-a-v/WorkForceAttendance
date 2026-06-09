@@ -164,21 +164,8 @@ export default function Sidebar({ activeTab, setActiveTab, pendingReviewsCount, 
           <span>Logout Session</span>
         </button>
 
-        {portalRole === 'admin' && (
-          <button
-            type="button"
-            onClick={() => {
-              if (confirm("WARNING: This will permanently wipe all registered employees, attendance logs, photo proofs, and system audit trails. Are you sure you want to proceed?")) {
-                localStorage.clear();
-                alert("Database wiped successfully. Reloading the application...");
-                window.location.reload();
-              }
-            }}
-            className="w-full py-2 bg-rose-600/10 hover:bg-rose-600/25 border border-rose-500/20 hover:border-rose-500/45 text-rose-400 text-[10px] font-bold rounded-xl transition duration-150 cursor-pointer"
-          >
-            🚨 Factory Reset Database
-          </button>
-        )}
+
+
 
         <div>
           <p className="text-[10px] text-dark-500">System v1.3.0 (Stable)</p>
