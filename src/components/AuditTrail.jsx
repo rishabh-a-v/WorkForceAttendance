@@ -1,29 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { 
   History, 
   Search, 
   Download, 
-  ShieldCheck, 
   Server, 
-  Smartphone,
   Eye
 } from 'lucide-react';
 import { dbService } from '../db/dbService';
 
 export default function AuditTrail() {
-  const [logs, setLogs] = useState([]);
+  const [logs] = useState(() => dbService.getAuditLogs());
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedActionType, setSelectedActionType] = useState('All');
   
   // Modal viewer state for audit values
   const [activeLogDetail, setActiveLogDetail] = useState(null);
-
-  useEffect(() => {
-    const load = async () => {
-      setLogs(await dbService.getAuditLogs());
-    };
-    load();
-  }, []);
 
   const actionTypes = ['All', ...new Set(logs.map(l => l.actionType))];
 

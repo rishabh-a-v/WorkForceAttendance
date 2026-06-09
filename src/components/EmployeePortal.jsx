@@ -19,7 +19,9 @@ import {
   Search,
   Bell,
   Zap,
-  ZapOff
+  ZapOff,
+  X,
+  StopCircle
 } from 'lucide-react';
 import { dbService, WORKSITE } from '../db/dbService';
 import { 
@@ -28,7 +30,7 @@ import {
   compareBiometrics, 
   generateBiometrics, 
   recognizeFace, 
-  detectFaceInCanvas,
+  detectFacesInCanvas,
   loadFaceApiModels,
   assessFaceQuality,
   alignAndCropFace,
@@ -56,24 +58,15 @@ export default function EmployeePortal({ currentUser, onLogout }) {
   const [scanStatusMsg, setScanStatusMsg] = useState('Position your face in the viewfinder...');
   const [hasTorch, setHasTorch] = useState(false);
   const [isTorchOn, setIsTorchOn] = useState(false);
+  const [detectedFaces, setDetectedFaces] = useState([]);
   
   const rollingFramesRef = useRef([]);
   const scanLoopActive = useRef(false);
-  const gpsDataRef = useRef(gpsData);
+  const scanTimeoutRef = useRef(null);
   const isCheckInRef = useRef(isCheckIn);
   const activeEmployeeRef = useRef(activeEmployee);
 
-  useEffect(() => {
-    gpsDataRef.current = gpsData;
-  }, [gpsData]);
 
-  useEffect(() => {
-    isCheckInRef.current = isCheckIn;
-  }, [isCheckIn]);
-
-  useEffect(() => {
-    activeEmployeeRef.current = activeEmployee;
-  }, [activeEmployee]);
 
   useEffect(() => {
     return () => {
@@ -90,6 +83,7 @@ export default function EmployeePortal({ currentUser, onLogout }) {
   // GPS State
   const [gpsData, setGpsData] = useState(null);
   const [gpsLoading, setGpsLoading] = useState(false);
+  const gpsDataRef = useRef(null);
 
   // Change Password States
   const [currentPassword, setCurrentPassword] = useState('');
@@ -102,6 +96,18 @@ export default function EmployeePortal({ currentUser, onLogout }) {
   const streamRef = useRef(null);
   const canvasRef = useRef(null);
   const logCountRef = useRef(0);
+
+  useEffect(() => {
+    gpsDataRef.current = gpsData;
+  }, [gpsData]);
+
+  useEffect(() => {
+    isCheckInRef.current = isCheckIn;
+  }, [isCheckIn]);
+
+  useEffect(() => {
+    activeEmployeeRef.current = activeEmployee;
+  }, [activeEmployee]);
 
   useEffect(() => {
     // Hydrate active profiles and logs
@@ -139,7 +145,8 @@ export default function EmployeePortal({ currentUser, onLogout }) {
       return;
     }
 
-    const refreshLogs = () => {
+    const refreshLogs = async () => {
+      await dbService.syncFromServer();
       const allLogs = dbService.getAttendance();
       const filtered = allLogs.filter(a => a.employeeId === activeEmployee.id);
       
@@ -235,6 +242,10 @@ export default function EmployeePortal({ currentUser, onLogout }) {
 
   const handleStartCamera = async (currentFacingMode = facingMode) => {
     try {
+      if (scanTimeoutRef.current) {
+        clearTimeout(scanTimeoutRef.current);
+        scanTimeoutRef.current = null;
+      }
       setErrorMsg('');
       setSuccessMsg('');
       setScanImage(null);
@@ -242,6 +253,7 @@ export default function EmployeePortal({ currentUser, onLogout }) {
       setIsScanning(true);
       setScanStatusMsg('Initializing webcam...');
       rollingFramesRef.current = [];
+      setDetectedFaces([]);
       
       const constraints = {
         video: {
@@ -308,6 +320,10 @@ export default function EmployeePortal({ currentUser, onLogout }) {
 
   const handleStopCamera = () => {
     scanLoopActive.current = false;
+    if (scanTimeoutRef.current) {
+      clearTimeout(scanTimeoutRef.current);
+      scanTimeoutRef.current = null;
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
@@ -316,8 +332,10 @@ export default function EmployeePortal({ currentUser, onLogout }) {
       videoRef.current.srcObject = null;
     }
     setIsCameraActive(false);
+    setIsScanning(false);
     setHasTorch(false);
     setIsTorchOn(false);
+    setDetectedFaces([]);
   };
 
   const toggleTorch = async () => {
@@ -345,40 +363,17 @@ export default function EmployeePortal({ currentUser, onLogout }) {
     const ctx = canvas.getContext('2d');
 
     if (video.videoWidth === 0 || video.videoHeight === 0) {
-      setTimeout(runAutoScanLoop, 150);
+      scanTimeoutRef.current = setTimeout(runAutoScanLoop, 150);
       return;
     }
 
-    // Create a temporary canvas at full video resolution to detect the face
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = video.videoWidth || 640;
-    tempCanvas.height = video.videoHeight || 480;
-    const tempCtx = tempCanvas.getContext('2d');
-    tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
-
-    const faceBox = await detectFaceInCanvas(tempCanvas);
-
-    canvas.width = 400;
-    canvas.height = 400;
-
-    if (faceBox && faceBox.landmarks) {
-      const padW = faceBox.w * 0.3;
-      const padH = faceBox.h * 0.3;
-      const cropX = Math.max(0, faceBox.x - padW / 2);
-      const cropY = Math.max(0, faceBox.y - padH / 2);
-      const cropW = Math.min(tempCanvas.width - cropX, faceBox.w + padW);
-      const cropH = Math.min(tempCanvas.height - cropY, faceBox.h + padH);
-      ctx.drawImage(tempCanvas, cropX, cropY, cropW, cropH, 0, 0, 400, 400);
-    } else {
-      const sourceSize = Math.min(tempCanvas.width, tempCanvas.height);
-      const sourceX = (tempCanvas.width - sourceSize) / 2;
-      const sourceY = (tempCanvas.height - sourceSize) / 2;
-      ctx.drawImage(tempCanvas, sourceX, sourceY, sourceSize, sourceSize, 0, 0, 400, 400);
-    }
+    canvas.width = 640;
+    canvas.height = 480;
+    drawImageProp(ctx, video, 0, 0, 640, 480);
 
     const frameCanvas = document.createElement('canvas');
-    frameCanvas.width = 400;
-    frameCanvas.height = 400;
+    frameCanvas.width = 640;
+    frameCanvas.height = 480;
     frameCanvas.getContext('2d').drawImage(canvas, 0, 0);
     rollingFramesRef.current.push(frameCanvas);
     if (rollingFramesRef.current.length > 5) {
@@ -386,169 +381,276 @@ export default function EmployeePortal({ currentUser, onLogout }) {
     }
 
     try {
-      const localFaceBox = await detectFaceInCanvas(canvas);
-      if (!localFaceBox || !localFaceBox.landmarks) {
-        setScanStatusMsg('Aligning camera... position your face');
-        setTimeout(runAutoScanLoop, 300);
-        return;
+      const logs = dbService.getAttendance();
+      const employeesDb = dbService.getEmployees();
+
+      // Detect faces in all rolling frames
+      const allFramesDetections = [];
+      for (let f = 0; f < rollingFramesRef.current.length; f++) {
+        const frameCanvas = rollingFramesRef.current[f];
+        const detections = await detectFacesInCanvas(frameCanvas);
+        allFramesDetections.push(detections);
       }
 
-      const quality = assessFaceQuality(canvas, localFaceBox, localFaceBox.landmarks);
-      if (!quality.passed) {
-        setScanStatusMsg(`Hold still: ${quality.reason}`);
-        setTimeout(runAutoScanLoop, 300);
-        return;
-      }
-
-      const alignedCanvas = alignAndCropFace(canvas, localFaceBox.landmarks || localFaceBox);
-      const cropBase64 = alignedCanvas.toDataURL('image/jpeg', 0.85);
-
-      const imgDescriptor = await getFaceDescriptor(alignedCanvas);
-      if (!imgDescriptor) {
-        setScanStatusMsg('Calibrating biometrics... sit still');
-        setTimeout(runAutoScanLoop, 300);
-        return;
-      }
-
-      const samplesList = activeEmployeeRef.current.samples || [
-        {
-          id: `SAMP_${activeEmployeeRef.current.id}_1`,
-          vector: activeEmployeeRef.current.biometrics?.vector || new Array(512).fill(0),
-          avatar: activeEmployeeRef.current.avatar
-        }
-      ];
-
-      const sampleMatchResults = samplesList.map(sample => {
-        if (!sample.vector) return { distance: Infinity, cosine: -1 };
-        const norm = (v) => {
-          const s = Math.sqrt(v.reduce((sum, val) => sum + val * val, 0));
-          return s > 0 ? v.map(val => val / s) : v;
-        };
-        const v1 = norm(imgDescriptor);
-        const v2 = norm(sample.vector);
-        let sumSq = 0;
-        let dot = 0;
-        for (let i = 0; i < v1.length; i++) {
-          sumSq += Math.pow(v1[i] - v2[i], 2);
-          dot += v1[i] * v2[i];
-        }
-        return { distance: Math.sqrt(sumSq), cosine: dot };
-      });
-
-      let minDistance = Infinity;
-      let maxCosine = -Infinity;
-      sampleMatchResults.forEach(r => {
-        if (r.distance < minDistance) minDistance = r.distance;
-        if (r.cosine > maxCosine) maxCosine = r.cosine;
-      });
-
-      const capBio = extractBiometricsFromCanvas(alignedCanvas);
-      const shapeReport = compareBiometrics(activeEmployeeRef.current.biometrics, capBio);
-      const similarityScore = maxCosine;
-      const finalScore = Math.max(0, Math.min(100, Math.round(similarityScore * 100)));
-
-      setScanStatusMsg(`Matching: ${finalScore}% confidence... hold still`);
-
-      if (finalScore >= 75) {
-        if (rollingFramesRef.current.length >= 3) {
-          const framesLivenessData = [];
-          for (let f = 0; f < rollingFramesRef.current.length; f++) {
-            const frameBox = await detectFaceInCanvas(rollingFramesRef.current[f]);
-            const frameQuality = assessFaceQuality(rollingFramesRef.current[f], frameBox, frameBox.landmarks);
-            framesLivenessData.push({
-              ear: frameQuality.leftEAR ? (frameQuality.leftEAR + frameQuality.rightEAR) / 2 : 0.3,
-              yaw: frameQuality.yaw || 1.0,
-              passiveLiveness: frameQuality.passiveLiveness || 95
-            });
+      // Track detections across frames
+      const tracks = [];
+      allFramesDetections.forEach((detectionsInFrame, frameIdx) => {
+        detectionsInFrame.forEach(det => {
+          if (det.descriptor === null) return;
+          let matchedTrackIdx = -1;
+          let minCenterDist = 60;
+          const detCenter = {
+            x: det.box.x + det.box.w / 2,
+            y: det.box.y + det.box.h / 2
+          };
+          tracks.forEach((track, trackIdx) => {
+            const lastDet = track[track.length - 1];
+            const lastCenter = {
+              x: lastDet.box.x + lastDet.box.w / 2,
+              y: lastDet.box.y + lastDet.box.h / 2
+            };
+            const dist = Math.sqrt(Math.pow(detCenter.x - lastCenter.x, 2) + Math.pow(detCenter.y - lastCenter.y, 2));
+            if (dist < minCenterDist) {
+              minCenterDist = dist;
+              matchedTrackIdx = trackIdx;
+            }
+          });
+          if (matchedTrackIdx !== -1) {
+            tracks[matchedTrackIdx].push({ ...det, frameIdx });
+          } else {
+            tracks.push([{ ...det, frameIdx }]);
           }
+        });
+      });
 
-          const livenessResult = calculateMultiFrameLiveness(framesLivenessData);
-          if (livenessResult.spoofDetected || finalScore < 75) {
+      // Resolve each track (consensus matching against activeEmployeeRef.current)
+      const resolvedFaces = await Promise.all(tracks.map(async (track, idx) => {
+        const recognitions = await Promise.all(track.map(async (det) => {
+          // Match against activeEmployeeRef.current specifically
+          const rec = await recognizeFace(det.descriptor, [activeEmployeeRef.current]);
+          return { rec, det };
+        }));
+
+        const qualityDetails = track.map((det) => {
+          const frameCanvas = rollingFramesRef.current ? rollingFramesRef.current[det.frameIdx] : null;
+          if (!frameCanvas) {
+            return { passed: false, reason: 'Invalid frame canvas reference', blur: 0, contrast: 0, brightness: 0 };
+          }
+          return assessFaceQuality(frameCanvas, det.box, det.landmarks);
+        });
+
+        const matchCounts = {};
+        recognitions.forEach(r => {
+          const id = r.rec.matchedEmp ? r.rec.matchedEmp.id : 'UNKNOWN';
+          matchCounts[id] = (matchCounts[id] || 0) + 1;
+        });
+
+        let consensusEmpId = 'UNKNOWN';
+        let maxCount = 0;
+        Object.keys(matchCounts).forEach(id => {
+          if (matchCounts[id] > maxCount) {
+            maxCount = matchCounts[id];
+            consensusEmpId = id;
+          }
+        });
+
+        const matchedEmp = (activeEmployeeRef.current.id === consensusEmpId) ? activeEmployeeRef.current : null;
+        const consensusRecs = recognitions.filter(r => (r.rec.matchedEmp ? r.rec.matchedEmp.id : 'UNKNOWN') === consensusEmpId);
+        const avgSimilarity = consensusRecs.reduce((a, b) => a + (b.rec.confidence || 30), 0) / consensusRecs.length;
+
+        const framesLivenessData = qualityDetails.map((q) => ({
+          ear: q.leftEAR ? (q.leftEAR + q.rightEAR) / 2 : 0.3,
+          yaw: q.yaw || 1.0,
+          passiveLiveness: q.passiveLiveness || 95
+        }));
+
+        const livenessResult = calculateMultiFrameLiveness(framesLivenessData);
+        const avgQualityVal = qualityDetails.reduce((sum, q) => {
+          let score = 95;
+          if (q.blur < 12) score -= 15;
+          if (q.contrast < 25) score -= 15;
+          if (q.brightness < 60 || q.brightness > 190) score -= 15;
+          return sum + Math.max(20, score);
+        }, 0) / qualityDetails.length;
+
+        const avgQuality = Math.round(avgQualityVal);
+        const livenessScore = livenessResult.livenessScore;
+
+        let finalScore = Math.round(0.6 * avgSimilarity + 0.2 * livenessScore + 0.2 * avgQuality);
+        if (livenessResult.spoofDetected) {
+          finalScore = Math.min(finalScore, 40);
+        }
+
+        let status = 'Unregistered Person';
+        const today = new Date().toDateString();
+        const alreadyCheckedIn = matchedEmp && logs.some(a => 
+          a.employeeId === matchedEmp.id && 
+          new Date(a.checkInTime).toDateString() === today
+        );
+        const alreadyCheckedOut = matchedEmp && logs.some(a => 
+          a.employeeId === matchedEmp.id && 
+          new Date(a.checkInTime).toDateString() === today &&
+          a.checkOutTime !== null
+        );
+
+        if (matchedEmp) {
+          if (isCheckInRef.current && alreadyCheckedIn) {
+            status = 'Already Checked In';
+          } else if (!isCheckInRef.current && !alreadyCheckedIn) {
+            status = 'No Active Check-In';
+          } else if (!isCheckInRef.current && alreadyCheckedOut) {
+            status = 'Already Checked Out';
+          } else if (finalScore >= 75) {
+            status = 'Recognized';
+          } else if (finalScore >= 60) {
+            status = 'Manual Review';
+          }
+        }
+
+        let bestFrameIdx = 0;
+        let highestContrast = -1;
+        qualityDetails.forEach((q, fIdx) => {
+          if (q.contrast > highestContrast) {
+            highestContrast = q.contrast;
+            bestFrameIdx = fIdx;
+          }
+        });
+
+        const bestDet = track[bestFrameIdx];
+        const bestFrameCanvas = rollingFramesRef.current ? rollingFramesRef.current[bestDet.frameIdx] : null;
+        if (!bestFrameCanvas) {
+          return null;
+        }
+        const alignedCanvas = alignAndCropFace(bestFrameCanvas, bestDet.landmarks);
+        const avatarBase64 = alignedCanvas.toDataURL('image/jpeg', 0.85);
+
+        return {
+          id: `F${idx + 1}`,
+          name: matchedEmp ? matchedEmp.name : 'Unidentified Face',
+          empId: matchedEmp ? matchedEmp.id : 'UNKNOWN',
+          confidence: finalScore,
+          status,
+          box: bestDet.box,
+          avatar: avatarBase64,
+          qualityScore: avgQuality,
+          livenessScore: livenessScore,
+          similarityScore: Math.round(avgSimilarity),
+          biometricsReport: consensusRecs[0]?.rec.report || compareBiometrics(generateBiometrics('Unknown Face', true), generateBiometrics('Unknown Face', true)),
+          spoofDetected: livenessResult.spoofDetected
+        };
+      }));
+
+      const validResolvedFaces = resolvedFaces.filter(f => f !== null);
+      setDetectedFaces(validResolvedFaces);
+
+      // Now process matching results specifically for activeEmployeeRef.current
+      const matchedFace = validResolvedFaces.find(f => f.empId === activeEmployeeRef.current.id);
+      if (matchedFace) {
+        const finalScore = matchedFace.confidence;
+        const status = matchedFace.status;
+
+        if (status === 'Already Checked In') {
+          setErrorMsg('You have already checked in today.');
+          scanLoopActive.current = false;
+          handleStopCamera();
+          return;
+        } else if (status === 'No Active Check-In') {
+          setErrorMsg('No active check-in transaction found for today.');
+          scanLoopActive.current = false;
+          handleStopCamera();
+          return;
+        } else if (status === 'Already Checked Out') {
+          setErrorMsg('You have already checked out today.');
+          scanLoopActive.current = false;
+          handleStopCamera();
+          return;
+        }
+
+        // Require at least 3 frames for robust logging verification
+        if (rollingFramesRef.current.length >= 3) {
+          if (matchedFace.spoofDetected) {
             setScanStatusMsg('Biometrics mismatch or spoof detected.');
-            setTimeout(runAutoScanLoop, 350);
+            scanTimeoutRef.current = setTimeout(runAutoScanLoop, 350);
             return;
           }
 
-          scanLoopActive.current = false;
-          
-          const photoBase64 = canvas.toDataURL('image/jpeg', 0.85);
-          setScanImage(photoBase64);
-          handleStopCamera();
+          if (status === 'Recognized' || status === 'Manual Review') {
+            scanLoopActive.current = false;
+            const photoBase64 = canvas.toDataURL('image/jpeg', 0.85);
+            setScanImage(photoBase64);
+            handleStopCamera();
 
-          const gpsStatus = gpsDataRef.current ? gpsDataRef.current.status : 'GPS Unavailable';
-          let status = 'Approved';
-          if (finalScore < 75 || gpsStatus === 'Invalid Location') {
-            status = 'Verification Required';
-          }
-
-          const today = new Date().toDateString();
-          const logs = dbService.getAttendance();
-
-          if (isCheckInRef.current) {
-            const alreadyIn = logs.some(l => l.employeeId === activeEmployeeRef.current.id && new Date(l.checkInTime).toDateString() === today);
-            if (alreadyIn) {
-              setErrorMsg('You have already checked in today.');
-              return;
+            const gpsStatus = gpsDataRef.current ? gpsDataRef.current.status : 'GPS Unavailable';
+            let resolutionStatus = 'Approved';
+            if (status === 'Manual Review' || gpsStatus === 'Invalid Location') {
+              resolutionStatus = 'Verification Required';
             }
 
-            const attId = 'ATT' + Math.floor(1000 + Math.random() * 9000);
-            const record = {
-              id: attId,
-              employeeId: activeEmployeeRef.current.id,
-              employeeName: activeEmployeeRef.current.name,
-              checkInTime: new Date().toISOString(),
-              checkOutTime: null,
-              latitude: gpsDataRef.current?.lat ? parseFloat(gpsDataRef.current.lat) : null,
-              longitude: gpsDataRef.current?.lon ? parseFloat(gpsDataRef.current.lon) : null,
-              confidence: finalScore,
-              qualityScore: 94,
-              livenessScore: livenessResult.livenessScore,
-              similarityScore: neuralScore,
-              verificationStatus: status,
-              attendanceStatus: gpsStatus
-            };
+            const today = new Date().toDateString();
 
-            const res = dbService.saveAttendance(record);
-            if (res.success) {
-              dbService.savePhotos({
-                id: 'PH' + Math.floor(1000 + Math.random() * 9000),
-                attendanceId: attId,
-                originalPhoto: photoBase64,
-                croppedFace: cropBase64,
-                timestamp: new Date().toISOString()
+            if (isCheckInRef.current) {
+              const attId = 'ATT' + Math.floor(1000 + Math.random() * 9000);
+              const record = {
+                id: attId,
+                employeeId: activeEmployeeRef.current.id,
+                employeeName: activeEmployeeRef.current.name,
+                checkInTime: new Date().toISOString(),
+                checkOutTime: null,
+                latitude: gpsDataRef.current?.lat ? parseFloat(gpsDataRef.current.lat) : null,
+                longitude: gpsDataRef.current?.lon ? parseFloat(gpsDataRef.current.lon) : null,
+                confidence: finalScore,
+                qualityScore: matchedFace.qualityScore,
+                livenessScore: matchedFace.livenessScore,
+                similarityScore: matchedFace.similarityScore,
+                verificationStatus: resolutionStatus,
+                attendanceStatus: gpsStatus
+              };
+
+              const res = dbService.saveAttendance(record);
+              if (res.success) {
+                dbService.savePhotos({
+                  id: 'PH' + Math.floor(1000 + Math.random() * 9000),
+                  attendanceId: attId,
+                  originalPhoto: photoBase64,
+                  croppedFace: matchedFace.avatar,
+                  timestamp: new Date().toISOString()
+                });
+                setSuccessMsg(`Checked In Successfully! Timecard Resolution: ${resolutionStatus}.`);
+              } else {
+                setErrorMsg(res.error || 'Failed to save attendance.');
+              }
+            } else {
+              const activeCheckIn = logs.find(l => l.employeeId === activeEmployeeRef.current.id && !l.checkOutTime);
+              if (!activeCheckIn) {
+                setErrorMsg('No active check-in transaction found for today.');
+                return;
+              }
+
+              const res = dbService.updateAttendance(activeCheckIn.id, {
+                checkOutTime: new Date().toISOString(),
+                confidence: Math.round((activeCheckIn.confidence + finalScore) / 2),
+                attendanceStatus: gpsStatus
               });
-              setSuccessMsg(`Checked In Successfully! Timecard Resolution: ${status}.`);
-            } else {
-              setErrorMsg(res.error || 'Failed to save attendance.');
-            }
-          } else {
-            const activeCheckIn = logs.find(l => l.employeeId === activeEmployeeRef.current.id && !l.checkOutTime);
-            if (!activeCheckIn) {
-              setErrorMsg('No active check-in transaction found for today.');
-              return;
-            }
 
-            const res = dbService.updateAttendance(activeCheckIn.id, {
-              checkOutTime: new Date().toISOString(),
-              attendanceStatus: gpsStatus
-            });
-
-            if (res.success) {
-              setSuccessMsg('Checked Out Successfully! Timecard updated.');
-            } else {
-              setErrorMsg(res.error || 'Failed to update checkout.');
+              if (res.success) {
+                setSuccessMsg('Checked Out Successfully! Timecard updated.');
+              } else {
+                setErrorMsg(res.error || 'Failed to update checkout.');
+              }
             }
+            return;
           }
-          return;
         } else {
           setScanStatusMsg('Acquiring multi-frame liveness telemetry...');
         }
+      } else {
+        setScanStatusMsg('Aligning camera... position your face');
       }
 
-      setTimeout(runAutoScanLoop, 350);
+      scanTimeoutRef.current = setTimeout(runAutoScanLoop, 350);
     } catch (err) {
       console.error(err);
-      setTimeout(runAutoScanLoop, 350);
+      scanTimeoutRef.current = setTimeout(runAutoScanLoop, 350);
     }
   };
 
@@ -714,6 +816,56 @@ export default function EmployeePortal({ currentUser, onLogout }) {
             </div>
           </div>
 
+          {/* Geofence Location Status Bar */}
+          <div className="glass-panel p-4 rounded-2xl border border-dark-800/60 flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
+            <div className="flex items-center space-x-3.5 w-full md:w-auto">
+              <div className={`p-2.5 rounded-xl border ${
+                gpsLoading 
+                  ? 'bg-brand-500/10 border-brand-500/20 text-brand-400'
+                  : gpsData?.status === 'Valid Location'
+                    ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                    : gpsData?.status === 'Invalid Location'
+                      ? 'bg-rose-500/10 border-rose-500/20 text-rose-450'
+                      : 'bg-dark-800/40 border-dark-800/60 text-dark-400'
+              }`}>
+                <MapPin className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase font-bold text-dark-400 tracking-wider">Your Verification Location</p>
+                {gpsLoading ? (
+                  <p className="text-xs font-semibold text-dark-300 mt-0.5 flex items-center">
+                    <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin text-brand-400" /> Tracking GPS coordinates...
+                  </p>
+                ) : gpsData ? (
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5 text-xs">
+                    <span className={`font-extrabold ${gpsData.status === 'Valid Location' ? 'text-emerald-400' : 'text-rose-450'}`}>
+                      {gpsData.status}
+                    </span>
+                    <span className="text-dark-500">•</span>
+                    <span className="text-dark-300 font-semibold">Distance: {gpsData.distance === Infinity ? 'N/A' : `${Math.round(gpsData.distance)}m from worksite`}</span>
+                    {gpsData.lat && (
+                      <>
+                        <span className="text-dark-500">•</span>
+                        <span className="text-dark-400 text-[10px] font-mono">Coords: {gpsData.lat}, {gpsData.lon}</span>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-dark-500 mt-0.5">GPS location uninitialized. Please refresh.</p>
+                )}
+              </div>
+            </div>
+            
+            <button
+              onClick={fetchLocation}
+              disabled={gpsLoading}
+              className="w-full md:w-auto px-4 py-2 bg-dark-900 hover:bg-dark-800 border border-dark-800 text-xs font-bold text-brand-400 rounded-xl transition flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-55 disabled:cursor-not-allowed"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${gpsLoading ? 'animate-spin' : ''}`} />
+              <span>Refresh Location</span>
+            </button>
+          </div>
+
           {/* Core Employee Scanning Screen */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             
@@ -745,7 +897,30 @@ export default function EmployeePortal({ currentUser, onLogout }) {
                         muted 
                       />
                       {isCameraActive && (
-                        <div className="absolute top-4 right-4 flex space-x-2 z-20">
+                        <>
+                          {/* Face Detection Status Bar — top-left of viewport */}
+                          <div className="absolute top-4 left-4 z-20">
+                            {detectedFaces.length === 0 ? (
+                              <div className="flex items-center space-x-1.5 bg-dark-950/85 backdrop-blur-sm border border-dark-800 px-3 py-1.5 rounded-full shadow-lg">
+                                <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse flex-shrink-0" />
+                                <span className="text-[10px] font-bold text-dark-300 tracking-wide uppercase">Scanning for face...</span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center space-x-1.5 bg-dark-950/85 backdrop-blur-sm border border-emerald-500/30 px-3 py-1.5 rounded-full shadow-lg">
+                                <span className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
+                                <span className="text-[10px] font-bold text-white tracking-wide">
+                                  Face detected
+                                </span>
+                                {detectedFaces[0].empId !== 'UNKNOWN' && (
+                                  <span className="text-[9px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/25 px-1.5 py-0.5 rounded-full font-bold">
+                                    Matched ({detectedFaces[0].confidence}%)
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="absolute top-4 right-4 flex space-x-2 z-20">
                           {hasTorch && (
                             <button
                               type="button"
@@ -769,7 +944,18 @@ export default function EmployeePortal({ currentUser, onLogout }) {
                             <RefreshCw className="h-4 w-4 text-brand-400" />
                           </button>
                         </div>
-                      )}
+
+                        {/* End Streaming button */}
+                        <button
+                          type="button"
+                          onClick={handleStopCamera}
+                          className="absolute bottom-6 left-1/2 transform -translate-x-1/2 px-6 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-full flex items-center space-x-2 border border-rose-500/25 font-bold text-xs tracking-wider shadow-xl transition z-20 cursor-pointer"
+                        >
+                          <StopCircle className="h-4 w-4 animate-pulse" />
+                          <span>End Streaming / Stop Scanner</span>
+                        </button>
+                      </>
+                    )}
                     </>
                   ) : scanImage ? (
                     // Show the captured image with a "Scan Again" button overlaid
@@ -829,6 +1015,91 @@ export default function EmployeePortal({ currentUser, onLogout }) {
                   <canvas ref={canvasRef} className="hidden" />
                 </div>
               </div>
+
+              {/* Detected Face Output Results */}
+              {detectedFaces.length > 0 && (
+                <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-200">
+                  <h4 className="font-display font-extrabold text-xs text-dark-400 uppercase tracking-wider">Detected Face Output Results</h4>
+                  
+                  <div className="grid grid-cols-1 gap-5">
+                    {detectedFaces.map((f) => (
+                      <div 
+                        key={f.id} 
+                        className="glass-panel p-4 rounded-2xl border border-dark-800/80 space-y-3 flex flex-col justify-between"
+                      >
+                        {/* Card header */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2.5">
+                            <img 
+                              src={f.avatar} 
+                              className="w-10 h-10 rounded-lg object-cover border border-dark-800 bg-dark-950" 
+                              alt="Crop" 
+                            />
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-white truncate leading-tight">{f.name}</p>
+                              <p className="text-[9px] text-dark-500 font-mono truncate mt-0.5">ID: {f.empId}</p>
+                            </div>
+                          </div>
+                          
+                          <div className="text-right">
+                            <p className={`text-xs font-extrabold ${f.status === 'Recognized' ? 'text-emerald-400' : 'text-rose-450'}`}>
+                              {f.confidence}%
+                            </p>
+                            <p className="text-[8px] text-dark-500 uppercase mt-0.5">Score</p>
+                          </div>
+                        </div>
+
+                        {/* Status details */}
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="text-dark-500 font-medium">Status Match:</span>
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold border text-[9px] ${
+                            f.status === 'Recognized'
+                              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                              : 'bg-rose-500/10 border-rose-500/20 text-rose-500'
+                          }`}>
+                            {f.status}
+                          </span>
+                        </div>
+
+                        {/* Telemetry indexes */}
+                        <div className="grid grid-cols-3 gap-1 bg-dark-950 p-2 rounded-lg text-center border border-dark-850">
+                          <div>
+                            <p className="text-[8px] text-dark-500 font-bold uppercase tracking-wider">Quality</p>
+                            <p className="text-[10px] font-extrabold text-emerald-400">{f.qualityScore}%</p>
+                          </div>
+                          <div>
+                            <p className="text-[8px] text-dark-500 font-bold uppercase tracking-wider">Liveness</p>
+                            <p className="text-[10px] font-extrabold text-emerald-400">{f.livenessScore}%</p>
+                          </div>
+                          <div>
+                            <p className="text-[8px] text-dark-500 font-bold uppercase tracking-wider">Similarity</p>
+                            <p className="text-[10px] font-extrabold text-emerald-400">{f.similarityScore}%</p>
+                          </div>
+                        </div>
+
+                        {/* Diagnostics Details */}
+                        {f.biometricsReport && (
+                          <div className="border border-dark-850 rounded-lg overflow-hidden text-[9px] mt-1">
+                            <div className="bg-dark-900/60 px-2 py-1.5 flex items-center justify-between text-dark-400 font-bold border-b border-dark-850">
+                              <span>🔍 Diagnostics Parameters</span>
+                            </div>
+                            <div className="bg-dark-950 p-2 divide-y divide-dark-900 space-y-1 font-mono">
+                              {f.biometricsReport.parameters?.slice(0, 5).map((p, idx) => (
+                                <div key={idx} className="flex justify-between py-0.5">
+                                  <span className="text-dark-500 truncate max-w-[120px]">{p.name.replace(' (IPD)', '')}</span>
+                                  <span className={p.status === 'Match' ? 'text-emerald-400' : 'text-rose-450'}>
+                                    {p.status === 'Match' ? '✓' : '✗'}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Quick Status receipts & notifications */}

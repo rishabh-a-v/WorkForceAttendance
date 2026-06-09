@@ -46,12 +46,66 @@ export const updateWorksiteCoords = (lat, lon) => {
   );
 };
 
+// ─── Backend Sync Layer ───────────────────────────────────────────────────────
+// When VITE_API_URL is set the app syncs all reads/writes to the local backend
+// server. localStorage is still used as the immediate cache so all existing
+// synchronous calls continue to work without any changes elsewhere.
+
+const API_BASE = import.meta.env.VITE_API_URL === 'disabled'
+  ? ''
+  : (import.meta.env.VITE_API_URL || (typeof window !== 'undefined' ? window.location.origin : ''));
+
+const apiCall = async (method, path, body) => {
+  if (!API_BASE || API_BASE === 'disabled') return null;
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    return res.ok ? res.json() : null;
+  } catch {
+    return null; // Backend unreachable — localStorage mode continues silently
+  }
+};
+
+// Pull all server data into localStorage (called on initialize)
+const syncFromServer = async () => {
+  if (!API_BASE) return;
+  try {
+    const [employees, attendance, photos, auditLogs, worksite] = await Promise.all([
+      apiCall('GET', '/api/employees'),
+      apiCall('GET', '/api/attendance'),
+      apiCall('GET', '/api/photos'),
+      apiCall('GET', '/api/audit-logs'),
+      apiCall('GET', '/api/config/worksite'),
+    ]);
+    if (employees)  localStorage.setItem('wf_employees',            JSON.stringify(employees));
+    if (attendance) localStorage.setItem('wf_attendance',           JSON.stringify(attendance));
+    if (photos)     localStorage.setItem('wf_attendance_photos',    JSON.stringify(photos));
+    if (auditLogs)  localStorage.setItem('wf_audit_logs',           JSON.stringify(auditLogs));
+    if (worksite && worksite.latitude) {
+      const ws = { LATITUDE: worksite.latitude, LONGITUDE: worksite.longitude, RADIUS_METERS: worksite.radiusMeters };
+      localStorage.setItem('wf_worksite_coords', JSON.stringify(ws));
+      WORKSITE.LATITUDE = ws.LATITUDE;
+      WORKSITE.LONGITUDE = ws.LONGITUDE;
+      WORKSITE.RADIUS_METERS = ws.RADIUS_METERS;
+    }
+    console.log('[WorkForce] ✓ Synced from backend:', API_BASE);
+  } catch (e) {
+    console.warn('[WorkForce] Backend sync failed — using localStorage fallback:', e);
+  }
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 // Get items helper
 const get = (key) => JSON.parse(localStorage.getItem(key)) || [];
 const set = (key, data) => localStorage.setItem(key, JSON.stringify(data));
 
 // Base DB Service
 export const dbService = {
+  syncFromServer: () => syncFromServer(),
+
   // --- Employees ---
   getEmployees: () => get(KEYS.EMPLOYEES),
   
@@ -452,34 +506,104 @@ export const dbService = {
       localStorage.setItem('wf_fresh_start_wipe_v5_arcface', 'true');
     }
 
-    if (localStorage.getItem(KEYS.INITIALIZED)) return;
-    
-    // Initialize admin default password
-    if (!localStorage.getItem('wf_supervisor_password')) {
-      localStorage.setItem('wf_supervisor_password', 'admin123');
+    if (!localStorage.getItem(KEYS.INITIALIZED)) {
+      // Initialize admin default password
+      if (!localStorage.getItem('wf_supervisor_password')) {
+        localStorage.setItem('wf_supervisor_password', 'admin123');
+      }
+      // Initialize clean empty tables for manual enrollment
+      set(KEYS.EMPLOYEES, []);
+      set(KEYS.ATTENDANCE, []);
+      set(KEYS.PHOTOS, []);
+
+      const initialLogs = [
+        {
+          id: 'LOG0001',
+          actionType: 'Database Initialization',
+          user: 'System Engine',
+          timestamp: new Date().toISOString(),
+          oldValue: null,
+          newValue: 'Clean Tables Created',
+          ipAddress: '127.0.0.1',
+          deviceInfo: 'Local Database Manager',
+          remarks: 'Initialized clean, empty database tables. Ready for secure workforce registration.'
+        }
+      ];
+      set(KEYS.AUDIT_LOGS, initialLogs);
+      localStorage.setItem(KEYS.INITIALIZED, 'true');
     }
 
-    // Initialize clean empty tables for manual enrollment
-    set(KEYS.EMPLOYEES, []);
-    set(KEYS.ATTENDANCE, []);
-    set(KEYS.PHOTOS, []);
-
-    // Create a clean system audit log for database initialization
-    const initialLogs = [
-      {
-        id: 'LOG0001',
-        actionType: 'Database Initialization',
-        user: 'System Engine',
-        timestamp: new Date().toISOString(),
-        oldValue: null,
-        newValue: 'Clean Tables Created',
-        ipAddress: '127.0.0.1',
-        deviceInfo: 'Local Database Manager',
-        remarks: 'Initialized clean, empty database tables. Ready for secure workforce registration.'
-      }
-    ];
-    set(KEYS.AUDIT_LOGS, initialLogs);
-
-    localStorage.setItem(KEYS.INITIALIZED, 'true');
+    // Always pull fresh data from backend on startup (background, non-blocking)
+    syncFromServer();
   }
 };
+
+// ─── Background write mirrors ─────────────────────────────────────────────────
+// After every localStorage write we also push to the backend so all devices
+// share the same data. Failures are silent — localStorage remains the source of
+// truth for the current session.
+
+const _orig = { ...dbService };
+
+dbService.saveEmployee = (employee) => {
+  const result = _orig.saveEmployee(employee);
+  if (result.success) apiCall('POST', '/api/employees', employee);
+  return result;
+};
+
+dbService.updateEmployee = (employeeId, updatedFields) => {
+  const result = _orig.updateEmployee(employeeId, updatedFields);
+  if (result.success) apiCall('PUT', `/api/employees/${employeeId}`, updatedFields);
+  return result;
+};
+
+dbService.deleteEmployee = (employeeId) => {
+  const result = _orig.deleteEmployee(employeeId);
+  if (result.success) apiCall('DELETE', `/api/employees/${employeeId}`);
+  return result;
+};
+
+dbService.addEmployeeSample = (employeeId, sample) => {
+  const result = _orig.addEmployeeSample(employeeId, sample);
+  if (result.success) apiCall('POST', `/api/employees/${employeeId}/samples`, sample);
+  return result;
+};
+
+dbService.deleteEmployeeSample = (employeeId, sampleId) => {
+  const result = _orig.deleteEmployeeSample(employeeId, sampleId);
+  if (result.success) apiCall('DELETE', `/api/employees/${employeeId}/samples/${sampleId}`);
+  return result;
+};
+
+dbService.saveAttendance = (record) => {
+  const result = _orig.saveAttendance(record);
+  if (result.success) apiCall('POST', '/api/attendance', record);
+  return result;
+};
+
+dbService.updateAttendance = (recordId, updatedFields) => {
+  const result = _orig.updateAttendance(recordId, updatedFields);
+  if (result.success) apiCall('PUT', `/api/attendance/${recordId}`, updatedFields);
+  return result;
+};
+
+dbService.deleteAttendance = (recordId) => {
+  const result = _orig.deleteAttendance(recordId);
+  if (result.success) apiCall('DELETE', `/api/attendance/${recordId}`);
+  return result;
+};
+
+dbService.savePhotos = (photoRecord) => {
+  _orig.savePhotos(photoRecord);
+  apiCall('POST', '/api/photos', photoRecord);
+};
+
+dbService.authenticate = (username, password) => {
+  // Auth always goes to backend first when available, falls back to localStorage
+  if (API_BASE) {
+    return apiCall('POST', '/api/auth/login', { username, password })
+      .then(res => res || _orig.authenticate(username, password));
+  }
+  return Promise.resolve(_orig.authenticate(username, password));
+};
+

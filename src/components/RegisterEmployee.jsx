@@ -1,30 +1,32 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   UserPlus, 
   Search, 
   Camera, 
   Trash2, 
   User, 
-  Phone, 
-  Briefcase, 
   CheckCircle2, 
-  ShieldAlert,
   XCircle,
   Video,
   RefreshCw,
   Zap,
-  ZapOff
+  ZapOff,
+  Edit2
 } from 'lucide-react';
 import { dbService } from '../db/dbService';
-import { generateBiometrics, extractBiometricsFromCanvas, trainEmployeeFace, cropFaceFromCanvas, detectFaceInCanvas, detectFaceInFile, getFaceDescriptor, assessFaceQuality, alignAndCropFace, getNormalFrontCameraDeviceId } from '../utils/faceEngine';
+import { extractBiometricsFromCanvas, trainEmployeeFace, detectFaceInCanvas, detectFaceInFile, getFaceDescriptor, assessFaceQuality, alignAndCropFace, getNormalFrontCameraDeviceId } from '../utils/faceEngine';
+
+const generateRandomEmpId = () => {
+  return 'EMP' + Math.floor(100 + Math.random() * 900);
+};
 
 export default function RegisterEmployee() {
-  const [employees, setEmployees] = useState([]);
+  const [employees, setEmployees] = useState(() => dbService.getEmployees());
   const [searchTerm, setSearchTerm] = useState('');
   
   // Registration Form State
   const [liveBiometrics, setLiveBiometrics] = useState(null);
-  const [id, setId] = useState('');
+  const [id, setId] = useState(generateRandomEmpId);
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('');
   const [department, setDepartment] = useState('Packing');
@@ -49,6 +51,17 @@ export default function RegisterEmployee() {
   const sampleVideoRef = useRef(null);
   const sampleCanvasRef = useRef(null);
   const sampleStreamRef = useRef(null);
+
+  // Edit Employee Modal State
+  const [selectedEmpForEditing, setSelectedEmpForEditing] = useState(null);
+  const [editErrorMsg, setEditErrorMsg] = useState('');
+  const [editSuccessMsg, setEditSuccessMsg] = useState('');
+  const [editName, setEditName] = useState('');
+  const [editMobile, setEditMobile] = useState('');
+  const [editDesignation, setEditDesignation] = useState('');
+  const [editDepartment, setEditDepartment] = useState('Packing');
+  const [editPassword, setEditPassword] = useState('');
+  const [editRole, setEditRole] = useState('employee');
   
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -61,10 +74,6 @@ export default function RegisterEmployee() {
   const [isSampleTorchOn, setIsSampleTorchOn] = useState(false);
 
   useEffect(() => {
-    setEmployees(dbService.getEmployees());
-    // Auto-generate employee ID
-    setId('EMP' + Math.floor(100 + Math.random() * 900));
-
     // Cleanup: stop all camera streams when navigating away
     return () => {
       if (streamRef.current) {
@@ -85,7 +94,9 @@ export default function RegisterEmployee() {
         sampleStreamRef.current.getTracks().forEach(track => track.stop());
         sampleStreamRef.current = null;
       }
-      setIsSampleCameraActive(false);
+      Promise.resolve().then(() => {
+        setIsSampleCameraActive(false);
+      });
     }
   }, [selectedEmpForSamples]);
 
@@ -105,9 +116,13 @@ export default function RegisterEmployee() {
         foreheadContrast: parseFloat((capturedBiometrics.reduce((sum, b) => sum + (b.foreheadContrast || 0.08), 0) / 3).toFixed(3)),
         faceSymmetry: parseFloat((capturedBiometrics.reduce((sum, b) => sum + (b.faceSymmetry || 0.88), 0) / 3).toFixed(2))
       };
-      setLiveBiometrics(avg);
+      Promise.resolve().then(() => {
+        setLiveBiometrics(avg);
+      });
     } else {
-      setLiveBiometrics(null);
+      Promise.resolve().then(() => {
+        setLiveBiometrics(null);
+      });
     }
   }, [capturedBiometrics]);
 
@@ -358,6 +373,43 @@ export default function RegisterEmployee() {
       } else {
         setErrorMsg(res.error);
       }
+    }
+  };
+
+  const handleOpenEdit = (emp) => {
+    setEditName(emp.name);
+    setEditMobile(emp.mobile || '');
+    setEditDesignation(emp.designation || '');
+    setEditDepartment(emp.department || 'Packing');
+    setEditPassword(emp.password || '');
+    setEditRole(emp.role || 'employee');
+    setEditErrorMsg('');
+    setEditSuccessMsg('');
+    setSelectedEmpForEditing(emp);
+  };
+
+  const handleSaveEdit = (e) => {
+    e.preventDefault();
+    setEditErrorMsg('');
+    setEditSuccessMsg('');
+    if (!editName.trim() || !editDesignation.trim()) {
+      setEditErrorMsg('Name and Designation are required.');
+      return;
+    }
+    const res = dbService.updateEmployee(selectedEmpForEditing.id, {
+      name: editName.trim(),
+      mobile: editMobile.trim(),
+      designation: editDesignation.trim(),
+      department: editDepartment,
+      password: editPassword,
+      role: editRole,
+    });
+    if (res.success) {
+      setEmployees(dbService.getEmployees());
+      setEditSuccessMsg('Employee details updated successfully.');
+      setTimeout(() => setSelectedEmpForEditing(null), 1200);
+    } else {
+      setEditErrorMsg(res.error || 'Failed to update employee.');
     }
   };
 
@@ -1032,6 +1084,13 @@ export default function RegisterEmployee() {
                   </div>
                   <div className="flex items-center space-x-2">
                     <button
+                      onClick={() => handleOpenEdit(emp)}
+                      className="p-1.5 bg-violet-600/10 hover:bg-violet-600/20 border border-violet-500/10 hover:border-violet-500/30 text-violet-400 rounded-lg transition"
+                      title="Edit employee details"
+                    >
+                      <Edit2 className="h-3.5 w-3.5" />
+                    </button>
+                    <button
                       onClick={() => setSelectedEmpForSamples(emp)}
                       className="p-1.5 bg-brand-600/10 hover:bg-brand-600/20 border border-brand-500/10 hover:border-brand-500/30 text-brand-400 rounded-lg transition"
                       title="Manage face biometric samples"
@@ -1205,6 +1264,138 @@ export default function RegisterEmployee() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Employee Modal */}
+      {selectedEmpForEditing && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-dark-950 border border-dark-800 w-full max-w-lg rounded-3xl p-6 flex flex-col space-y-5 shadow-2xl animate-in fade-in zoom-in-95 duration-200 text-xs max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-dark-900 pb-3">
+              <div>
+                <h3 className="font-display font-extrabold text-sm text-white flex items-center space-x-2">
+                  <Edit2 className="h-4 w-4 text-violet-400" />
+                  <span>Edit Employee Profile</span>
+                </h3>
+                <p className="text-[10px] text-dark-400 mt-0.5">
+                  {selectedEmpForEditing.id} &mdash; Modifying details for {selectedEmpForEditing.name}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedEmpForEditing(null)}
+                className="text-xs text-dark-500 hover:text-white font-bold"
+              >
+                Close (ESC)
+              </button>
+            </div>
+
+            {/* Alerts */}
+            {editErrorMsg && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[10px] rounded-xl flex items-center space-x-2">
+                <XCircle className="h-4 w-4 flex-shrink-0" />
+                <span>{editErrorMsg}</span>
+              </div>
+            )}
+            {editSuccessMsg && (
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] rounded-xl flex items-center space-x-2">
+                <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+                <span>{editSuccessMsg}</span>
+              </div>
+            )}
+
+            {/* Form */}
+            <form onSubmit={handleSaveEdit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-dark-400">Full Name</label>
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="custom-input text-xs"
+                    required
+                  />
+                </div>
+                <div className="flex flex-col space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-dark-400">Mobile Number</label>
+                  <input
+                    type="text"
+                    value={editMobile}
+                    onChange={(e) => setEditMobile(e.target.value)}
+                    className="custom-input text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-dark-400">Designation</label>
+                  <input
+                    type="text"
+                    value={editDesignation}
+                    onChange={(e) => setEditDesignation(e.target.value)}
+                    className="custom-input text-xs"
+                    required
+                  />
+                </div>
+                <div className="flex flex-col space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-dark-400">Department</label>
+                  <select
+                    value={editDepartment}
+                    onChange={(e) => setEditDepartment(e.target.value)}
+                    className="bg-dark-950 border border-dark-800 rounded-xl px-4 py-2.5 text-xs text-dark-300 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/20 transition-all duration-200"
+                  >
+                    <option value="Packing">Packing</option>
+                    <option value="Warehouse">Warehouse</option>
+                    <option value="Operations">Operations</option>
+                    <option value="Quality">Quality Control</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-dark-400">System Role</label>
+                  <select
+                    value={editRole}
+                    onChange={(e) => setEditRole(e.target.value)}
+                    className="bg-dark-950 border border-dark-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/20 transition-all duration-200"
+                    style={{ color: editRole === 'supervisor' ? '#a78bfa' : '#94a3b8' }}
+                  >
+                    <option value="employee">👤 Employee</option>
+                    <option value="supervisor">👥 Supervisor</option>
+                  </select>
+                </div>
+                <div className="flex flex-col space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-dark-400">Login Password / PIN</label>
+                  <input
+                    type="text"
+                    value={editPassword}
+                    onChange={(e) => setEditPassword(e.target.value)}
+                    placeholder="Leave blank to keep current"
+                    className="custom-input text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setSelectedEmpForEditing(null)}
+                  className="flex-1 py-2.5 bg-dark-900 hover:bg-dark-800 border border-dark-700 text-dark-300 text-xs font-bold rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 bg-gradient-to-r from-violet-600 to-violet-500 hover:from-violet-500 hover:to-violet-400 text-white text-xs font-bold rounded-xl shadow-lg transition duration-200"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

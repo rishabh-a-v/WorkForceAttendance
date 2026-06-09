@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Users, 
   Clock, 
@@ -10,7 +10,6 @@ import {
   AlertCircle,
   Calendar,
   CheckCircle,
-  XCircle,
   Check,
   Pencil
 } from 'lucide-react';
@@ -127,10 +126,14 @@ export default function Dashboard() {
 
   useEffect(() => {
     const load = async () => {
-      setEmployees(await dbService.getEmployees());
-      setAttendance(await dbService.getAttendance());
+      await dbService.syncFromServer();
+      setEmployees(dbService.getEmployees());
+      setAttendance(dbService.getAttendance());
     };
     load();
+
+    const interval = setInterval(load, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   // Filter computations
@@ -361,7 +364,7 @@ export default function Dashboard() {
             </span>
           </h4>
           <div className="flex-1 overflow-y-auto max-h-48 space-y-2.5 pr-1">
-            {attendance.slice(-4).reverse().map((a, i) => (
+            {attendance.slice(-4).reverse().map((a) => (
               <div 
                 key={a.id} 
                 className="bg-dark-900/30 p-2.5 rounded-xl border border-dark-800/40 flex items-center justify-between hover:border-dark-700/60 transition duration-150"

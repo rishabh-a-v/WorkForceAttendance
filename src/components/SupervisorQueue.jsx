@@ -1,20 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   ShieldAlert, 
   Search, 
-  MapPin, 
   ShieldCheck, 
   ShieldX, 
-  Calendar, 
-  User, 
-  AlertTriangle,
-  ZoomIn,
   Download,
-  AlertCircle,
-  Clock
+  AlertCircle
 } from 'lucide-react';
 import { dbService } from '../db/dbService';
-import { compareBiometrics, generateBiometrics, extractBiometricsFromCanvas, recognizeFace } from '../utils/faceEngine';
+import { compareBiometrics, generateBiometrics, recognizeFace } from '../utils/faceEngine';
 
 export default function SupervisorQueue({ onActionTriggered }) {
   const [queueItems, setQueueItems] = useState([]);
@@ -34,7 +28,8 @@ export default function SupervisorQueue({ onActionTriggered }) {
   // Biometric comparison state
   const [activeComparison, setActiveComparison] = useState(null);
 
-  const loadDatabase = () => {
+  async function loadDatabase() {
+    await dbService.syncFromServer();
     const allAttendance = dbService.getAttendance();
     const reqReviews = allAttendance.filter(a => a.verificationStatus === 'Verification Required');
     setQueueItems(reqReviews);
@@ -46,10 +41,12 @@ export default function SupervisorQueue({ onActionTriggered }) {
     } else {
       setSelectedRecord(null);
     }
-  };
+  }
 
   useEffect(() => {
-    loadDatabase();
+    Promise.resolve().then(() => {
+      loadDatabase();
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -83,12 +80,18 @@ export default function SupervisorQueue({ onActionTriggered }) {
           capturedBio.faceAspect = selectedEmp.biometrics.faceAspect - 0.08;
         }
         const report = compareBiometrics(selectedEmp.biometrics, capturedBio);
-        setActiveComparison(report);
+        Promise.resolve().then(() => {
+          if (active) setActiveComparison(report);
+        });
       } else {
-        setActiveComparison(null);
+        Promise.resolve().then(() => {
+          if (active) setActiveComparison(null);
+        });
       }
     } else {
-      setActiveComparison(null);
+      Promise.resolve().then(() => {
+        if (active) setActiveComparison(null);
+      });
     }
     return () => {
       active = false;
@@ -97,12 +100,12 @@ export default function SupervisorQueue({ onActionTriggered }) {
 
 
 
-  const handleSelectRecord = (record, allLogs = null) => {
+  function handleSelectRecord(record) {
     setSelectedRecord(record);
     setSelectedEmpId(record.employeeId !== 'UNKNOWN' ? record.employeeId : '');
     setSearchEmpQuery(record.employeeId !== 'UNKNOWN' ? record.employeeName : '');
     setComplianceNotes('');
-  };
+  }
 
   const handleDropdownSelect = (emp) => {
     setSelectedEmpId(emp.id);

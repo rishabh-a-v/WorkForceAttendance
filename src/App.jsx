@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Menu, X, Shield, Users } from 'lucide-react';
 
 import Sidebar from './components/Sidebar';
@@ -34,17 +34,19 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
 
-  useEffect(() => {
-    // Hydrate local database tables on initial mount
-    dbService.initialize();
-    updatePendingBadge();
-  }, []);
-
   const updatePendingBadge = () => {
     const logs = dbService.getAttendance();
     const reviews = logs.filter(a => a.verificationStatus === 'Verification Required').length;
     setPendingReviewsCount(reviews);
   };
+
+  useEffect(() => {
+    // Hydrate local database tables on initial mount
+    dbService.initialize();
+    Promise.resolve().then(() => {
+      updatePendingBadge();
+    });
+  }, []);
 
   const handleLoginSuccess = (role, user) => {
     setCurrentUser(user);
@@ -168,7 +170,7 @@ export default function App() {
       </div>
 
       {/* Main Core Router Viewport */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950">
+      <main className="flex-1 flex flex-col overflow-hidden bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950">
         {renderActiveComponent()}
       </main>
     </div>

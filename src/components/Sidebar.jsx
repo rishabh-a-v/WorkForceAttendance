@@ -1,4 +1,3 @@
-import React from 'react';
 import { 
   LayoutDashboard, 
   UserCheck, 
@@ -11,7 +10,7 @@ import {
   Camera
 } from 'lucide-react';
 
-export default function Sidebar({ activeTab, setActiveTab, pendingReviewsCount, portalRole = 'admin', currentUser, onLogout, onSwitchRole }) {
+export default function Sidebar({ activeTab, setActiveTab, pendingReviewsCount, portalRole = 'admin', currentUser, onLogout }) {
   
   // Nav items per role
   const adminItems = [
@@ -28,8 +27,7 @@ export default function Sidebar({ activeTab, setActiveTab, pendingReviewsCount, 
   ];
 
   const supervisorItems = [
-    { id: 'supervisor-portal',        label: 'My Attendance',   icon: User },
-    { id: 'supervisor-portal-group',  label: 'Group Scan',      icon: Camera },
+    { id: 'supervisor-portal', label: 'Attendance Scanner', icon: Camera },
   ];
 
   const employeeItems = [
@@ -41,27 +39,11 @@ export default function Sidebar({ activeTab, setActiveTab, pendingReviewsCount, 
     portalRole === 'supervisor' ? supervisorItems :
     employeeItems;
 
-  // For supervisor, both sidebar items map to the same route but pass an initial tab hint
   const handleNavClick = (id) => {
-    if (id === 'supervisor-portal-group') {
-      // Store the desired initial tab so SupervisorPortal can pick it up
-      sessionStorage.setItem('sv_initial_tab', 'group');
-      setActiveTab('supervisor-portal');
-    } else if (id === 'supervisor-portal') {
-      sessionStorage.setItem('sv_initial_tab', 'self');
-      setActiveTab('supervisor-portal');
-    } else {
-      setActiveTab(id);
-    }
+    setActiveTab(id);
   };
 
   const isActive = (id) => {
-    if (id === 'supervisor-portal' && activeTab === 'supervisor-portal') {
-      return (sessionStorage.getItem('sv_initial_tab') || 'self') === 'self';
-    }
-    if (id === 'supervisor-portal-group' && activeTab === 'supervisor-portal') {
-      return sessionStorage.getItem('sv_initial_tab') === 'group';
-    }
     return activeTab === id;
   };
 

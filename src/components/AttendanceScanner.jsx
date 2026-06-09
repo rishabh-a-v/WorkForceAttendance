@@ -1,10 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   Camera, 
   MapPin, 
   CheckCircle, 
-  AlertCircle, 
-  HelpCircle,
   Clock, 
   UserCheck, 
   UserMinus,
@@ -15,7 +13,6 @@ import {
   ShieldCheck,
   RefreshCw,
   Sliders,
-  ChevronDown,
   StopCircle,
   Zap,
   ZapOff
@@ -23,11 +20,9 @@ import {
 import { dbService, WORKSITE, updateWorksiteCoords } from '../db/dbService';
 import { 
   calculateDistanceInMeters, 
-  cropFaceFromCanvas, 
   compareBiometrics, 
   generateBiometrics, 
   recognizeFace, 
-  recognizeFaceInBox,
   detectFacesInCanvas,
   loadFaceApiModels,
   assessFaceQuality,
@@ -39,8 +34,16 @@ import {
 
 // Removed mock data for deployment
 export default function AttendanceScanner() {
-  const [employees, setEmployees] = useState([]);
-  const [activeShiftEmployees, setActiveShiftEmployees] = useState([]);
+  const [employees] = useState(() => dbService.getEmployees());
+  const [activeShiftEmployees, setActiveShiftEmployees] = useState(() => {
+    const attendance = dbService.getAttendance();
+    const today = new Date().toDateString();
+    return attendance.filter(a => 
+      new Date(a.checkInTime).toDateString() === today && 
+      !a.checkOutTime && 
+      a.employeeId !== 'UNKNOWN'
+    );
+  });
   
   // App Config States
   const [scannerMode, setScannerMode] = useState('camera'); // 'camera' or 'manual'
@@ -92,21 +95,7 @@ export default function AttendanceScanner() {
     isCheckInRef.current = isCheckIn;
   }, [isCheckIn]);
 
-  useEffect(() => {
-    setEmployees(dbService.getEmployees());
-    updateActiveShift();
-    fetchLocation();
-    
-    // Pre-load deep learning face-api models
-    loadFaceApiModels().catch(err => {
-      console.error('Failed to pre-load face-api models:', err);
-    });
 
-    return () => {
-      scanLoopActive.current = false;
-      handleStopCamera();
-    };
-  }, []);
 
   const updateActiveShift = () => {
     const attendance = dbService.getAttendance();
@@ -177,9 +166,7 @@ export default function AttendanceScanner() {
     fetchLocation();
   };
 
-  const handleFetchLocation = () => {
-    fetchLocation();
-  };
+
 
   const handleStartCamera = async (currentFacingMode = facingMode) => {
     try {
@@ -262,6 +249,34 @@ export default function AttendanceScanner() {
     setHasTorch(false);
     setIsTorchOn(false);
   };
+
+  useEffect(() => {
+    Promise.resolve().then(() => {
+      fetchLocation();
+    });
+    
+    // Pre-load deep learning face-api models
+    loadFaceApiModels().catch(err => {
+      console.error('Failed to pre-load face-api models:', err);
+    });
+
+    return () => {
+      scanLoopActive.current = false;
+      handleStopCamera();
+    };
+  }, []);
+
+  useEffect(() => {
+    const syncData = async () => {
+      await dbService.syncFromServer();
+      updateActiveShift();
+    };
+    
+    syncData();
+    const interval = setInterval(syncData, 3000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   const toggleTorch = async () => {
     if (!streamRef.current) return;
@@ -432,9 +447,9 @@ export default function AttendanceScanner() {
             status = 'No Active Check-In';
           } else if (!isCheckInRef.current && alreadyCheckedOut) {
             status = 'Already Checked Out';
-          } else if (finalScore >= 75) {
+          } else if (finalScore >= 65) {
             status = 'Recognized';
-          } else if (finalScore >= 60) {
+          } else if (finalScore >= 50) {
             status = 'Manual Review';
           }
         }
@@ -629,73 +644,7 @@ export default function AttendanceScanner() {
     if (loggedSomething) {
       updateActiveShift();
     }
-  };
-
-  const handleSubmitShiftLogs = () => {
-    if (detectedFaces.length === 0) return;
-    
-    let enrollCount = 0;
-    const logs = dbService.getAttendance();
-    const gpsStatus = gpsData ? gpsData.status : 'GPS Unavailable';
-
-    detectedFaces.forEach(f => {
-      // Skips and blocks unrecognized/already processed faces from being logged
-      if (f.empId === 'UNKNOWN' || 
-          f.status === 'Unregistered Person' || 
-          f.status === 'Already Checked In' || 
-          f.status === 'Already Checked Out' || 
-          f.status === 'No Active Check-In') return;
-      
-      if (isCheckIn) {
-
-        const attId = 'ATT' + Math.floor(1000 + Math.random() * 9000);
-        const record = {
-          id: attId,
-          employeeId: f.empId,
-          employeeName: f.name,
-          checkInTime: new Date().toISOString(),
-          checkOutTime: null,
-          latitude: gpsData?.lat ? parseFloat(gpsData.lat) : null,
-          longitude: gpsData?.lon ? parseFloat(gpsData.lon) : null,
-          confidence: f.confidence,
-          qualityScore: f.qualityScore || 92,
-          livenessScore: f.livenessScore || 95,
-          similarityScore: f.similarityScore || f.confidence,
-          verificationStatus: f.status === 'Recognized' ? 'Approved' : 'Verification Required',
-          attendanceStatus: gpsStatus
-        };
-
-        const res = dbService.saveAttendance(record);
-        if (res.success) {
-          dbService.savePhotos({
-            id: 'PH' + Math.floor(1000 + Math.random() * 9000),
-            attendanceId: attId,
-            originalPhoto: scanImage,
-            croppedFace: f.avatar,
-            timestamp: new Date().toISOString()
-          });
-          enrollCount++;
-        }
-      } else {
-        // Clock-Out shift override
-        const activeCheckIn = logs.find(a => a.employeeId === f.empId && !a.checkOutTime);
-        if (activeCheckIn) {
-          dbService.updateAttendance(activeCheckIn.id, {
-            checkOutTime: new Date().toISOString(),
-            confidence: Math.round((activeCheckIn.confidence + f.confidence) / 2), 
-            attendanceStatus: gpsStatus
-          });
-          enrollCount++;
-        }
-      }
-    });
-
-    setSuccessCount(enrollCount);
-    setDetectedFaces([]);
-    setScanImage(null);
-    setSelectedTemplateIdx('');
-    updateActiveShift();
-  };
+    };
 
   const handleManualOverrideSubmit = (e) => {
     e.preventDefault();
@@ -1097,6 +1046,8 @@ export default function AttendanceScanner() {
                       setIsCheckIn(true); 
                       setSuccessCount(null); 
                       handleStopCamera();
+                      sessionLoggedIds.current = new Set();
+                      setSessionLogged([]);
                     }}
                     className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition ${
                       isCheckIn 
@@ -1113,6 +1064,8 @@ export default function AttendanceScanner() {
                       setIsCheckIn(false); 
                       setSuccessCount(null); 
                       handleStopCamera();
+                      sessionLoggedIds.current = new Set();
+                      setSessionLogged([]);
                     }}
                     className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition ${
                       !isCheckIn 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Shield, Key, User, AlertCircle, RefreshCw, Users } from 'lucide-react';
 import { dbService } from '../db/dbService';
 
@@ -54,8 +54,6 @@ export default function Login({ onLoginSuccess, initialTab = 'admin' }) {
     { key: 'supervisor', label: 'Supervisor', fullLabel: 'Supervisor Login',   Icon: Users,  color: 'violet' },
     { key: 'employee',   label: 'Employee',   fullLabel: 'Employee Console',   Icon: User,   color: 'brand' },
   ];
-
-  const activeColor = activeTab === 'supervisor' ? 'violet' : 'brand';
 
   return (
     <div className="min-h-[100dvh] w-full flex items-center justify-center bg-dark-950 bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950 p-4 select-none relative overflow-hidden" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>

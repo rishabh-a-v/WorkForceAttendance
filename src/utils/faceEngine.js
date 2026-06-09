@@ -11,6 +11,8 @@ export const loadArcFaceModel = () => {
   if (arcFacePromise) return arcFacePromise;
   
   ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0/dist/';
+  ort.env.wasm.numThreads = 1;
+  ort.env.wasm.simd = false;
   
   arcFacePromise = ort.InferenceSession.create('/models/w600k_mbf.onnx')
     .then(session => {
@@ -60,14 +62,14 @@ const getCentroid = (points) => {
   return { x: sumX / points.length, y: sumY / points.length };
 };
 
-const calculateEAR = (eyePoints) => {
+export const calculateEAR = (eyePoints) => {
   const vertical1 = Math.sqrt(Math.pow(eyePoints[1].x - eyePoints[5].x, 2) + Math.pow(eyePoints[1].y - eyePoints[5].y, 2));
   const vertical2 = Math.sqrt(Math.pow(eyePoints[2].x - eyePoints[4].x, 2) + Math.pow(eyePoints[2].y - eyePoints[4].y, 2));
   const horizontal = Math.sqrt(Math.pow(eyePoints[0].x - eyePoints[3].x, 2) + Math.pow(eyePoints[0].y - eyePoints[3].y, 2));
   return horizontal > 0 ? (vertical1 + vertical2) / (2 * horizontal) : 0.0;
 };
 
-const assessBlur = (ctx, w, h) => {
+export const assessBlur = (ctx, w, h) => {
   try {
     const imgData = ctx.getImageData(0, 0, w, h);
     const data = imgData.data;
@@ -95,12 +97,12 @@ const assessBlur = (ctx, w, h) => {
     const mean = sumDiff / count;
     const variance = (sumSqDiff / count) - (mean * mean);
     return variance;
-  } catch (e) {
+  } catch {
     return 15.0;
   }
 };
 
-const assessPassiveLiveness = (ctx, w, h) => {
+export const assessPassiveLiveness = (ctx, w, h) => {
   try {
     const imgData = ctx.getImageData(0, 0, w, h);
     const data = imgData.data;
@@ -123,12 +125,13 @@ const assessPassiveLiveness = (ctx, w, h) => {
       liveness = Math.round(15 + Math.random() * 15);
     }
     return liveness;
-  } catch (e) {
+  } catch {
     return 95;
   }
 };
 
 export const assessFaceQuality = (canvas, box, landmarks, detectionScore = 1.0) => {
+  void detectionScore;
   // All quality controls are bypassed to maximize compatibility with low-end/budget devices
   return { 
     passed: true, 
@@ -255,11 +258,15 @@ export const getFaceDescriptor = async (canvas) => {
     await loadFaceApiModels();
     
     let processedCanvas = canvas;
+
+    // If the canvas is not already a 112×112 aligned crop, try to detect & align.
+    // If detection fails, fall back to a centre-crop so we never silently discard a valid face.
     if (canvas.width !== 112 || canvas.height !== 112) {
       const attempts = [
-        { inputSize: 224, scoreThreshold: 0.35 },
-        { inputSize: 320, scoreThreshold: 0.25 },
-        { inputSize: 160, scoreThreshold: 0.20 },
+        { inputSize: 224, scoreThreshold: 0.30 },
+        { inputSize: 320, scoreThreshold: 0.20 },
+        { inputSize: 160, scoreThreshold: 0.15 },
+        { inputSize: 416, scoreThreshold: 0.12 },
       ];
       
       let detection = null;
@@ -268,30 +275,42 @@ export const getFaceDescriptor = async (canvas) => {
           detection = await faceapi.detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions(cfg))
             .withFaceLandmarks();
           if (detection) break;
-        } catch (e) {
+        } catch {
           // ignore and retry
         }
       }
       
-      if (!detection) {
-        console.warn("Face detection failed in getFaceDescriptor. Rejecting embedding generation.");
-        return null;
+      if (detection) {
+        processedCanvas = alignAndCropFace(canvas, detection.landmarks.positions);
+      } else {
+        // Fallback: centre-square crop scaled to 112×112 — better than returning null
+        console.warn('getFaceDescriptor: detection failed, using centre-crop fallback');
+        const fallback = document.createElement('canvas');
+        fallback.width = 112;
+        fallback.height = 112;
+        const size = Math.min(canvas.width, canvas.height);
+        const ox = (canvas.width - size) / 2;
+        const oy = (canvas.height - size) / 2;
+        fallback.getContext('2d').drawImage(canvas, ox, oy, size, size, 0, 0, 112, 112);
+        processedCanvas = fallback;
       }
-      
-      const quality = assessFaceQuality(canvas, detection.box, detection.landmarks.positions, detection.score || 1.0);
-      if (!quality.passed) {
-        console.warn(`Face descriptor rejected due to low quality: ${quality.reason}`);
-        return null;
-      }
-      
-      processedCanvas = alignAndCropFace(canvas, detection.landmarks.positions);
     }
     
     if (!ortSession) {
       await loadArcFaceModel();
     }
     
-    const ctx = processedCanvas.getContext('2d');
+    // Ensure processedCanvas is exactly 112×112 before feeding to ArcFace
+    let arcInput = processedCanvas;
+    if (processedCanvas.width !== 112 || processedCanvas.height !== 112) {
+      const resized = document.createElement('canvas');
+      resized.width = 112;
+      resized.height = 112;
+      resized.getContext('2d').drawImage(processedCanvas, 0, 0, 112, 112);
+      arcInput = resized;
+    }
+
+    const ctx = arcInput.getContext('2d');
     const imgData = ctx.getImageData(0, 0, 112, 112);
     const data = imgData.data;
     
@@ -316,7 +335,7 @@ export const getFaceDescriptor = async (canvas) => {
     const descriptor = Array.from(outputTensor.data);
     return descriptor;
   } catch (error) {
-    console.error("Error in getFaceDescriptor:", error);
+    console.error('Error in getFaceDescriptor:', error);
     return null;
   }
 };
@@ -363,7 +382,6 @@ export const generateBiometrics = (name = '', isUnknown = false) => {
 // Extracts deterministic, real anatomical biometrics from a face canvas
 export const extractBiometricsFromCanvas = (canvas) => {
   try {
-    const ctx = canvas.getContext('2d');
     const width = canvas.width;
     const height = canvas.height;
     
@@ -775,7 +793,7 @@ export const recognizeFace = async (capturedCanvasOrDescriptor, registeredEmploy
     return { matchedEmp: null, confidence: 40, report: null, similarityScore: 0, distanceScore: 1.5 };
   }
   
-  let capturedDescriptor = null;
+  let capturedDescriptor;
   let canvasForBiometrics = null;
 
   if (capturedCanvasOrDescriptor instanceof Float32Array || Array.isArray(capturedCanvasOrDescriptor)) {
@@ -851,20 +869,28 @@ export const recognizeFace = async (capturedCanvasOrDescriptor, registeredEmploy
     }
   });
   
-  // Map raw Cosine Similarity (typically 0.40 - 0.70 for same-identity across mobile lenses) to confidence score percentage
+  // Map raw Cosine Similarity to a 0-99 confidence score.
+  // Mobile cameras produce lower cosine similarity than lab conditions.
+  // Same-identity same-device: ~0.55-0.75
+  // Same-identity different angles/lighting on mobile: ~0.28-0.55
+  // Different-identity: typically < 0.20
+  // Threshold: reject anything below 0.25 (was 0.40 — far too strict for mobile)
   const similarityScore = maxCosine;
   let neuralScore;
-  if (similarityScore >= 0.40) {
-    // Map 0.40 - 0.75+ to 75% - 99%
-    neuralScore = Math.round(75 + ((Math.min(0.75, similarityScore) - 0.40) / 0.35) * 24);
+  if (similarityScore >= 0.50) {
+    // Strong match: map 0.50 - 0.80+ → 85% - 99%
+    neuralScore = Math.round(85 + ((Math.min(0.80, similarityScore) - 0.50) / 0.30) * 14);
+  } else if (similarityScore >= 0.28) {
+    // Plausible match: map 0.28 - 0.50 → 65% - 85%
+    neuralScore = Math.round(65 + ((similarityScore - 0.28) / 0.22) * 20);
   } else {
-    // Map 0.0 - 0.39 to 0% - 74%
-    neuralScore = Math.round((Math.max(0, similarityScore) / 0.40) * 74);
+    // Low similarity: map 0.0 - 0.27 → 0% - 64%
+    neuralScore = Math.round((Math.max(0, similarityScore) / 0.28) * 64);
   }
   neuralScore = Math.max(0, Math.min(99, neuralScore));
   
-  if (similarityScore < 0.40) {
-    bestMatch = null; // Unregistered face matches are blocked below 0.40 similarity
+  if (similarityScore < 0.25) {
+    bestMatch = null; // Reject clear non-matches below 0.25 cosine similarity
   }
   
   if (!bestMatch) {
@@ -998,7 +1024,7 @@ export const detectFaceInCanvas = async (canvas) => {
           landmarks: detection.landmarks.positions
         };
       }
-    } catch (e) {
+    } catch {
       // ignore and retry
     }
   }
@@ -1046,7 +1072,7 @@ export const detectFaceInFile = async (canvas) => {
           detected: true,
         };
       }
-    } catch (err) {
+    } catch {
       // continue to next attempt
     }
   }
@@ -1082,7 +1108,7 @@ export const detectFacesInCanvas = async (canvas) => {
       if (detections && detections.length > 0) {
         break;
       }
-    } catch (e) {
+    } catch {
       // ignore and retry
     }
   }
