@@ -62,33 +62,65 @@ const apiCall = async (method, path, body) => {
 
     if (isAppsScript) {
       let action = '';
-      if (path === '/api/employees' && method === 'GET') action = 'getEmployees';
-      else if (path === '/api/employees' && method === 'POST') action = 'saveEmployee';
-      else if (path.startsWith('/api/employees/') && method === 'PUT') {
+      if (path === '/api/employees' && method === 'GET') {
+        action = 'getEmployees';
+      } else if (path === '/api/employees' && method === 'POST') {
+        action = 'saveEmployee';
+      } else if (path.startsWith('/api/employees/') && path.endsWith('/samples') && method === 'POST') {
+        const empId = path.split('/')[3];
+        const employees = JSON.parse(localStorage.getItem('wf_employees') || '[]');
+        const emp = employees.find(e => e.id === empId);
+        if (emp) {
+          action = 'updateEmployee';
+          body = {
+            id: empId,
+            biometrics: emp.biometrics,
+            registeredPhotos: emp.registeredPhotos
+          };
+        }
+      } else if (path.startsWith('/api/employees/') && path.includes('/samples/') && method === 'DELETE') {
+        const empId = path.split('/')[3];
+        const employees = JSON.parse(localStorage.getItem('wf_employees') || '[]');
+        const emp = employees.find(e => e.id === empId);
+        if (emp) {
+          action = 'updateEmployee';
+          body = {
+            id: empId,
+            biometrics: emp.biometrics,
+            registeredPhotos: emp.registeredPhotos
+          };
+        }
+      } else if (path.startsWith('/api/employees/') && method === 'PUT') {
         action = 'updateEmployee';
         body = { ...body, id: path.split('/').pop() };
-      }
-      else if (path.startsWith('/api/employees/') && method === 'DELETE') {
+      } else if (path.startsWith('/api/employees/') && method === 'DELETE') {
         action = 'deleteEmployee';
         body = { id: path.split('/').pop() };
-      }
-      else if (path === '/api/attendance' && method === 'GET') action = 'getAttendance';
-      else if (path === '/api/attendance' && method === 'POST') action = 'saveAttendance';
-      else if (path.startsWith('/api/attendance/') && method === 'PUT') {
+      } else if (path === '/api/attendance' && method === 'GET') {
+        action = 'getAttendance';
+      } else if (path === '/api/attendance' && method === 'POST') {
+        action = 'saveAttendance';
+      } else if (path.startsWith('/api/attendance/') && method === 'PUT') {
         action = 'updateAttendance';
         body = { ...body, id: path.split('/').pop() };
-      }
-      else if (path.startsWith('/api/attendance/') && method === 'DELETE') {
+      } else if (path.startsWith('/api/attendance/') && method === 'DELETE') {
         action = 'deleteAttendance';
         body = { id: path.split('/').pop() };
+      } else if (path === '/api/photos' && method === 'GET') {
+        action = 'getPhotos';
+      } else if (path === '/api/photos' && method === 'POST') {
+        action = 'savePhotos';
+      } else if (path === '/api/audit-logs' && method === 'GET') {
+        action = 'getAuditLogs';
+      } else if (path === '/api/config/worksite' && method === 'GET') {
+        action = 'getWorksite';
+      } else if (path === '/api/config/worksite' && method === 'PUT') {
+        action = 'updateWorksite';
+      } else if (path === '/api/auth/login' && method === 'POST') {
+        action = 'login';
+      } else if (path === '/api/auth/password' && method === 'PUT') {
+        action = 'changePassword';
       }
-      else if (path === '/api/photos' && method === 'GET') action = 'getPhotos';
-      else if (path === '/api/photos' && method === 'POST') action = 'savePhotos';
-      else if (path === '/api/audit-logs' && method === 'GET') action = 'getAuditLogs';
-      else if (path === '/api/config/worksite' && method === 'GET') action = 'getWorksite';
-      else if (path === '/api/config/worksite' && method === 'PUT') action = 'updateWorksite';
-      else if (path === '/api/auth/login' && method === 'POST') action = 'login';
-      else if (path === '/api/auth/password' && method === 'PUT') action = 'changePassword';
 
       if (!action) return null;
 
@@ -123,7 +155,21 @@ const syncFromServer = async () => {
       apiCall('GET', '/api/audit-logs'),
       apiCall('GET', '/api/config/worksite'),
     ]);
-    if (employees)  localStorage.setItem('wf_employees',            JSON.stringify(employees));
+    if (employees) {
+      const processedEmployees = employees.map(emp => {
+        if (!emp.samples) {
+          emp.samples = (emp.registeredPhotos || [emp.avatar || AVATARS.UNKNOWN]).map((img, idx) => ({
+            id: `SAMP_${emp.id}_${idx + 1}`,
+            vector: emp.biometrics?.vector || new Array(512).fill(0),
+            avatar: img,
+            quality: { blur: 15.0, brightness: 120, contrast: 45, eyeVisible: true, headYaw: 1.0, headPitch: 1.0, isPartial: false, passed: true },
+            registeredAt: new Date().toISOString()
+          }));
+        }
+        return emp;
+      });
+      localStorage.setItem('wf_employees', JSON.stringify(processedEmployees));
+    }
     if (attendance) localStorage.setItem('wf_attendance',           JSON.stringify(attendance));
     if (photos)     localStorage.setItem('wf_attendance_photos',    JSON.stringify(photos));
     if (auditLogs)  localStorage.setItem('wf_audit_logs',           JSON.stringify(auditLogs));
