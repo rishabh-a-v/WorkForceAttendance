@@ -228,11 +228,11 @@ export const calculateMultiFrameLiveness = (framesData) => {
   let blinkDetected = false;
   let motionDetected = false;
   
-  if (framesData.length >= 3) {
+  if (framesData.length >= 2) {
     const ears = framesData.map(f => f.ear || 0.3);
     const maxEar = Math.max(...ears);
     const minEar = Math.min(...ears);
-    if (maxEar - minEar >= 0.08) {
+    if (maxEar - minEar >= 0.05) {
       blinkDetected = true;
     }
     

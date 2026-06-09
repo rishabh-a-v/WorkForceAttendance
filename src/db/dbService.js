@@ -593,9 +593,67 @@ dbService.deleteAttendance = (recordId) => {
   return result;
 };
 
-dbService.savePhotos = (photoRecord) => {
+const compressImageBase64 = (base64Str, maxChars = 48000) => {
+  return new Promise((resolve) => {
+    if (!base64Str || base64Str.length <= maxChars || !base64Str.startsWith('data:image')) {
+      return resolve(base64Str);
+    }
+
+    const img = new Image();
+    img.onload = () => {
+      let width = img.width;
+      let height = img.height;
+      let quality = 0.8;
+      
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+
+      const attemptCompress = () => {
+        canvas.width = width;
+        canvas.height = height;
+        ctx.clearRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+        const result = canvas.toDataURL('image/jpeg', quality);
+        
+        if (result.length <= maxChars || (width < 60 && quality < 0.15)) {
+          resolve(result);
+        } else {
+          width = Math.round(width * 0.90);
+          height = Math.round(height * 0.90);
+          quality = Math.max(0.1, quality - 0.1);
+          attemptCompress();
+        }
+      };
+
+      attemptCompress();
+    };
+    img.onerror = () => resolve(base64Str);
+    img.src = base64Str;
+  });
+};
+
+dbService.savePhotos = async (photoRecord) => {
+  // Save original high quality photos locally first
   _orig.savePhotos(photoRecord);
-  apiCall('POST', '/api/photos', photoRecord);
+  
+  // Compress photos and send to backend
+  try {
+    const [compressedOriginal, compressedCropped] = await Promise.all([
+      compressImageBase64(photoRecord.originalPhoto, 48000),
+      compressImageBase64(photoRecord.croppedFace, 48000)
+    ]);
+    
+    const recordToPost = {
+      ...photoRecord,
+      originalPhoto: compressedOriginal,
+      croppedFace: compressedCropped
+    };
+    
+    apiCall('POST', '/api/photos', recordToPost);
+  } catch (error) {
+    console.error('[dbService] Image compression failed, posting original:', error);
+    apiCall('POST', '/api/photos', photoRecord);
+  }
 };
 
 dbService.authenticate = (username, password) => {
@@ -606,4 +664,13 @@ dbService.authenticate = (username, password) => {
   }
   return Promise.resolve(_orig.authenticate(username, password));
 };
+
+dbService.changePassword = (userId, currentPassword, newPassword, isAdmin) => {
+  const result = _orig.changePassword(userId, currentPassword, newPassword, isAdmin);
+  if (result.success) {
+    apiCall('PUT', '/api/auth/password', { userId, currentPassword, newPassword, isAdmin });
+  }
+  return result;
+};
+
 

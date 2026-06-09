@@ -22,3 +22,21 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment configs & secrets
+.env
+server/.env
+*credentials.json
+client_secret.json
+token.json
+
+# Local databases and photos
+server/data/
+server/workforce.db*
+
+# Lint reports and test outputs
+*_lint.txt
+lint_errors.txt
+test-*.js
+test-crash*.js
+
