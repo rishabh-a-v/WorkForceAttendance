@@ -11,7 +11,7 @@ import {
   RefreshCw,
   Zap,
   ZapOff,
-  Edit2
+  Pencil
 } from 'lucide-react';
 import { dbService } from '../db/dbService';
 import { extractBiometricsFromCanvas, trainEmployeeFace, detectFaceInCanvas, detectFaceInFile, getFaceDescriptor, assessFaceQuality, alignAndCropFace, getNormalFrontCameraDeviceId } from '../utils/faceEngine';
@@ -1088,7 +1088,7 @@ export default function RegisterEmployee() {
                       className="p-1.5 bg-violet-600/10 hover:bg-violet-600/20 border border-violet-500/10 hover:border-violet-500/30 text-violet-400 rounded-lg transition"
                       title="Edit employee details"
                     >
-                      <Edit2 className="h-3.5 w-3.5" />
+                      <Pencil className="h-3.5 w-3.5" />
                     </button>
                     <button
                       onClick={() => setSelectedEmpForSamples(emp)}
@@ -1276,7 +1276,7 @@ export default function RegisterEmployee() {
             <div className="flex items-center justify-between border-b border-dark-900 pb-3">
               <div>
                 <h3 className="font-display font-extrabold text-sm text-white flex items-center space-x-2">
-                  <Edit2 className="h-4 w-4 text-violet-400" />
+                  <Pencil className="h-4 w-4 text-violet-400" />
                   <span>Edit Employee Profile</span>
                 </h3>
                 <p className="text-[10px] text-dark-400 mt-0.5">
