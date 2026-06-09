@@ -37,19 +37,7 @@ const generateRandomId = (prefix) => {
 };
 
 // Preset shift templates representing group shifts (essential for simulation/testing)
-const TEAM_TEMPLATES = [
-  {
-    id: 'SHIFT_A',
-    name: 'Shift A - Packing Packers (4 Faces Preset)',
-    img: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" fill="none"><rect width="800" height="450" fill="%230f172a"/><rect x="80" y="80" width="140" height="240" rx="16" fill="%231e293b" stroke="%23334155" stroke-width="2"/><rect x="250" y="80" width="140" height="240" rx="16" fill="%231e293b" stroke="%23334155" stroke-width="2"/><rect x="420" y="80" width="140" height="240" rx="16" fill="%231e293b" stroke="%23334155" stroke-width="2"/><rect x="590" y="80" width="140" height="240" rx="16" fill="%231e293b" stroke="%23334155" stroke-width="2"/><circle cx="150" cy="150" r="40" fill="%2338bdf8"/><circle cx="320" cy="150" r="40" fill="%23f472b6"/><circle cx="490" cy="150" r="40" fill="%2394a3b8"/><circle cx="660" cy="150" r="40" fill="%2334d399"/><text x="400" y="380" fill="%2364748b" font-size="16" font-family="sans-serif" font-weight="bold" text-anchor="middle">PACKING LINE TEAM A</text></svg>',
-    faces: [
-      { id: 'F1', name: 'Worker 1', empId: 'EMP001', confidence: 98, status: 'Recognized', box: { x: 100, y: 100, w: 100, h: 100 }, avatar: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none"><circle cx="50" cy="50" r="50" fill="%231e293b"/><path d="M50 82c16.5 0 30-10.5 30-22c0-1.5-1-4.5-3-5.5c-3-1.5-7-.5-10 .5c-5 1.5-12 1.5-17 0c-3-1-7-2-10-.5C37 56 36 59 36 60.5C36 71.5 49.5 82 50 82z" fill="%230c85e9"/><circle cx="50" cy="40" r="18" fill="%2338bdf8"/><path d="M50 25c6 0 10 4 10 9s-4 7-10 7s-10-2-10-7s4-9 10-9z" fill="%230284c7"/></svg>' },
-      { id: 'F2', name: 'Worker 2', empId: 'EMP002', confidence: 95, status: 'Recognized', box: { x: 270, y: 100, w: 100, h: 100 }, avatar: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none"><circle cx="50" cy="50" r="50" fill="%231e293b"/><path d="M50 82c16.5 0 30-10.5 30-22c0-1.5-1-4.5-3-5.5c-3-1.5-7-.5-10 .5c-5 1.5-12 1.5-17 0c-3-1-7-2-10-.5C37 56 36 59 36 60.5C36 71.5 49.5 82 50 82z" fill="%23ec4899"/><circle cx="50" cy="40" r="18" fill="%23f472b6"/><path d="M50 25c6 0 9 4 9 9s-3 7-9 7s-9-2-9-7s3-9 9-9z" fill="%23db2777"/></svg>' },
-      { id: 'F3', name: 'Unidentified Face', empId: 'UNKNOWN', confidence: 42, status: 'Manual Review', box: { x: 440, y: 100, w: 100, h: 100 }, avatar: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none"><circle cx="50" cy="50" r="50" fill="%23334155"/><path d="M50 82c16.5 0 30-10.5 30-22c0-1.5-1-4.5-3-5.5c-3-1.5-7-.5-10 .5c-5 1.5-12 1.5-17 0c-3-1-7-2-10-.5C37 56 36 59 36 60.5C36 71.5 49.5 82 50 82z" fill="%2364748b"/><circle cx="50" cy="40" r="18" fill="%2394a3b8"/><path d="M47 28h6v12h-6zm0 16h6v6h-6z" fill="%230f172a"/></svg>' },
-      { id: 'F4', name: 'Worker 3', empId: 'EMP003', confidence: 78, status: 'Manual Review', box: { x: 610, y: 100, w: 100, h: 100 }, avatar: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none"><circle cx="50" cy="50" r="50" fill="%231e293b"/><path d="M50 82c16.5 0 30-10.5 30-22c0-1.5-1-4.5-3-5.5c-3-1.5-7-.5-10 .5c-5 1.5-12 1.5-17 0c-3-1-7-2-10-.5C37 56 36 59 36 60.5C36 71.5 49.5 82 50 82z" fill="%2310b981"/><circle cx="50" cy="40" r="18" fill="%2334d399"/><path d="M50 25c6 0 10 4 10 9s-4 7-10 7s-10-2-10-7s4-9 10-9z" fill="%23059669"/></svg>' }
-    ]
-  }
-];
+
 
 export default function SupervisorPortal({ currentUser }) {
   const [employees] = useState(() => dbService.getEmployees());
@@ -129,17 +117,16 @@ export default function SupervisorPortal({ currentUser }) {
   // TAB B: GROUP SCAN (BULK ATTENDANCE SCAN)
   // ==========================================
   const [isGroupCheckIn, setIsGroupCheckIn] = useState(true);
-  const [groupInputSource, setGroupInputSource] = useState('webcam');
   const [isGroupCameraActive, setIsGroupCameraActive] = useState(false);
-  const [isGroupScanning, setIsGroupScanning] = useState(false);
   const [groupScanImage, setGroupScanImage] = useState(null);
   const [groupDetectedFaces, setGroupDetectedFaces] = useState([]);
-  const [groupErrorMsg, setGroupErrorMsg] = useState('');
   const [groupSuccessCount, setGroupSuccessCount] = useState(null);
-  const [selectedTemplateIdx, setSelectedTemplateIdx] = useState('');
   const [groupFacingMode, setGroupFacingMode] = useState('user');
   const [groupScanStatusMsg, setGroupScanStatusMsg] = useState('Position face in the viewfinder...');
+  const [isGroupScanning, setIsGroupScanning] = useState(false);
+  const [groupErrorMsg, setGroupErrorMsg] = useState('');
   const [groupHasTorch, setGroupHasTorch] = useState(false);
+
   const [groupIsTorchOn, setGroupIsTorchOn] = useState(false);
   
   const groupVideoRef = useRef(null);
@@ -590,22 +577,7 @@ export default function SupervisorPortal({ currentUser }) {
     }
   };
 
-  const handleSelectTemplate = (idx) => {
-    setSelectedTemplateIdx(idx);
-    if (idx === '') return;
-    const template = TEAM_TEMPLATES[idx];
-    setGroupScanImage(template.img);
-    processFrame(idx);
-  };
 
-  const processFrame = async (activeIdx = selectedTemplateIdx) => {
-    setIsGroupScanning(true);
-    await new Promise(r => setTimeout(r, 1500));
-    const faces = TEAM_TEMPLATES[activeIdx].faces;
-    setGroupDetectedFaces(faces);
-    autoLogRecognizedFaces(faces);
-    setIsGroupScanning(false);
-  };
 
   const handleOverrideEmployeeId = (faceId, empId) => {
     const updated = groupDetectedFaces.map(f => {
@@ -780,7 +752,6 @@ export default function SupervisorPortal({ currentUser }) {
               setGroupSuccessCount(null);
               setGroupScanImage(null);
               setGroupDetectedFaces([]);
-              setSelectedTemplateIdx('');
               setSessionLogged([]);
               setLatestCaptureMsg('');
               sessionLoggedIds.current = new Set();
@@ -887,37 +858,6 @@ export default function SupervisorPortal({ currentUser }) {
                           <h3 className="text-xs font-bold text-white">Live Scanner Frame</h3>
                           <p className="text-[10px] text-dark-400 mt-0.5">Captures single or multiple worker identities side-by-side.</p>
                         </div>
-                      </div>
-
-                      {/* Input Source Selector / Preset template Selector */}
-                      <div className="flex flex-wrap items-center gap-2">
-                        <select
-                          value={groupInputSource}
-                          onChange={(e) => {
-                            setGroupInputSource(e.target.value);
-                            stopGroupCamera();
-                            setGroupScanImage(null);
-                            setGroupDetectedFaces([]);
-                            setSelectedTemplateIdx('');
-                          }}
-                          className="bg-dark-900 border border-dark-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none cursor-pointer"
-                        >
-                          <option value="webcam">Live Video Webcam</option>
-                          <option value="preset">Preset Team Snapshots</option>
-                        </select>
-
-                        {groupInputSource === 'preset' && (
-                          <select
-                            value={selectedTemplateIdx}
-                            onChange={(e) => handleSelectTemplate(e.target.value)}
-                            className="bg-dark-900 border border-dark-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none cursor-pointer"
-                          >
-                            <option value="">Select Team Preset...</option>
-                            {TEAM_TEMPLATES.map((t, idx) => (
-                              <option key={t.id} value={idx}>{t.name}</option>
-                            ))}
-                          </select>
-                        )}
                       </div>
                     </div>
 
@@ -1147,7 +1087,7 @@ export default function SupervisorPortal({ currentUser }) {
                           Successfully saved attendance logs for <strong>{groupSuccessCount} workers</strong>. Time cards logged and photo proofs stored.
                         </p>
                         <button
-                          onClick={() => { setGroupSuccessCount(null); if (groupInputSource === 'webcam') startGroupCamera(); }}
+                          onClick={() => { setGroupSuccessCount(null); startGroupCamera(); }}
                           className="w-full py-2 bg-dark-900 hover:bg-dark-800 border border-dark-800 text-[10px] text-white font-bold rounded-xl transition cursor-pointer"
                         >
                           Scan Next Shift Group
