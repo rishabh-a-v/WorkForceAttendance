@@ -58,14 +58,57 @@ const API_BASE = import.meta.env.VITE_API_URL === 'disabled'
 const apiCall = async (method, path, body) => {
   if (!API_BASE || API_BASE === 'disabled') return null;
   try {
+    const isAppsScript = API_BASE.includes('script.google.com');
+
+    if (isAppsScript) {
+      let action = '';
+      if (path === '/api/employees' && method === 'GET') action = 'getEmployees';
+      else if (path === '/api/employees' && method === 'POST') action = 'saveEmployee';
+      else if (path.startsWith('/api/employees/') && method === 'PUT') {
+        action = 'updateEmployee';
+        body = { ...body, id: path.split('/').pop() };
+      }
+      else if (path.startsWith('/api/employees/') && method === 'DELETE') {
+        action = 'deleteEmployee';
+        body = { id: path.split('/').pop() };
+      }
+      else if (path === '/api/attendance' && method === 'GET') action = 'getAttendance';
+      else if (path === '/api/attendance' && method === 'POST') action = 'saveAttendance';
+      else if (path.startsWith('/api/attendance/') && method === 'PUT') {
+        action = 'updateAttendance';
+        body = { ...body, id: path.split('/').pop() };
+      }
+      else if (path.startsWith('/api/attendance/') && method === 'DELETE') {
+        action = 'deleteAttendance';
+        body = { id: path.split('/').pop() };
+      }
+      else if (path === '/api/photos' && method === 'GET') action = 'getPhotos';
+      else if (path === '/api/photos' && method === 'POST') action = 'savePhotos';
+      else if (path === '/api/audit-logs' && method === 'GET') action = 'getAuditLogs';
+      else if (path === '/api/config/worksite' && method === 'GET') action = 'getWorksite';
+      else if (path === '/api/config/worksite' && method === 'PUT') action = 'updateWorksite';
+      else if (path === '/api/auth/login' && method === 'POST') action = 'login';
+      else if (path === '/api/auth/password' && method === 'PUT') action = 'changePassword';
+
+      if (!action) return null;
+
+      const res = await fetch(API_BASE, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ action, ...body })
+      });
+      return res.ok ? res.json() : null;
+    }
+
     const res = await fetch(`${API_BASE}${path}`, {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
     return res.ok ? res.json() : null;
-  } catch {
-    return null; // Backend unreachable — localStorage mode continues silently
+  } catch (e) {
+    console.warn('[WorkForce] API call failed:', e);
+    return null;
   }
 };
 
