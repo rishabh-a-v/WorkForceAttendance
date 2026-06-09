@@ -117,7 +117,6 @@ export default function AttendanceScanner() {
       setGpsData({
         lat: null,
         lon: null,
-        distance: Infinity,
         accuracy: 0,
         status: 'GPS Unavailable'
       });
@@ -128,19 +127,12 @@ export default function AttendanceScanner() {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude, accuracy } = position.coords;
-        const dist = calculateDistanceInMeters(
-          latitude, 
-          longitude, 
-          WORKSITE.LATITUDE, 
-          WORKSITE.LONGITUDE
-        );
         
         setGpsData({
           lat: latitude.toFixed(6),
           lon: longitude.toFixed(6),
-          distance: dist,
           accuracy: Math.round(accuracy),
-          status: dist <= WORKSITE.RADIUS_METERS ? 'Valid Location' : 'Invalid Location'
+          status: 'GPS Captured'
         });
         setGpsLoading(false);
       },
@@ -149,7 +141,6 @@ export default function AttendanceScanner() {
         setGpsData({
           lat: null,
           lon: null,
-          distance: Infinity,
           accuracy: 0,
           status: 'GPS Unavailable'
         });
@@ -157,13 +148,6 @@ export default function AttendanceScanner() {
       },
       { enableHighAccuracy: true, timeout: 8000 }
     );
-  };
-
-  const handleCalibrateGeofence = () => {
-    if (!gpsData || !gpsData.lat || !gpsData.lon) return;
-    updateWorksiteCoords(gpsData.lat, gpsData.lon);
-    alert(`Geofence coordinates centered to: ${gpsData.lat}, ${gpsData.lon}. Status updated to Valid!`);
-    fetchLocation();
   };
 
 
@@ -406,7 +390,7 @@ export default function AttendanceScanner() {
         const avgSimilarity = consensusRecs.reduce((a, b) => a + (b.rec.confidence || 30), 0) / consensusRecs.length;
 
         const framesLivenessData = qualityDetails.map((q) => ({
-          ear: q.leftEAR ? (q.leftEAR + q.rightEAR) / 2 : 0.3,
+          ear: (q.leftEAR !== undefined && q.rightEAR !== undefined) ? (q.leftEAR + q.rightEAR) / 2 : 0.3,
           yaw: q.yaw || 1.0,
           passiveLiveness: q.passiveLiveness || 95
         }));
@@ -448,7 +432,11 @@ export default function AttendanceScanner() {
           } else if (!isCheckInRef.current && alreadyCheckedOut) {
             status = 'Already Checked Out';
           } else if (finalScore >= 65) {
-            status = 'Recognized';
+            if (livenessResult.blinkDetected) {
+              status = 'Recognized';
+            } else {
+              status = 'Blink Required';
+            }
           } else if (finalScore >= 50) {
             status = 'Manual Review';
           }
@@ -479,6 +467,7 @@ export default function AttendanceScanner() {
           qualityScore: avgQuality,
           livenessScore: livenessScore,
           similarityScore: Math.round(avgSimilarity),
+          blinkDetected: livenessResult.blinkDetected,
           biometricsReport: consensusRecs[0]?.rec.report || compareBiometrics(generateBiometrics('Unknown Face', true), generateBiometrics('Unknown Face', true))
         };
       }));
@@ -538,7 +527,8 @@ export default function AttendanceScanner() {
           f.status === 'Unregistered Person' || 
           f.status === 'Already Checked In' || 
           f.status === 'Already Checked Out' || 
-          f.status === 'No Active Check-In') return;
+          f.status === 'No Active Check-In' ||
+          f.status === 'Blink Required') return;
 
       if (sessionLoggedIds.current.has(f.empId)) return;
 
@@ -770,7 +760,7 @@ export default function AttendanceScanner() {
         </div>
       </div>
 
-      {/* Geofence Info & Console Toolbar */}
+      {/* GPS Info & Console Toolbar */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="glass-card lg:col-span-2 p-5 rounded-2xl border border-dark-800 flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center space-x-3.5">
@@ -778,18 +768,22 @@ export default function AttendanceScanner() {
               <MapPin className="h-5.5 w-5.5" />
             </div>
             <div>
-              <p className="text-[10px] uppercase font-bold text-dark-400">Site Geofencing Status</p>
+              <p className="text-[10px] uppercase font-bold text-dark-400">GPS Location Status</p>
               {gpsLoading ? (
                 <p className="text-xs font-semibold text-dark-300 mt-1 flex items-center">
-                  <RefreshCw className="h-3 w-3 mr-1 animate-spin text-brand-400" /> Tracking browser GPS perimeter...
+                  <RefreshCw className="h-3 w-3 mr-1 animate-spin text-brand-400" /> Tracking browser GPS coordinates...
                 </p>
               ) : gpsData ? (
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-xs">
-                  <span className={`font-extrabold ${gpsData.status === 'Valid Location' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  <span className={`font-extrabold ${gpsData.status === 'GPS Captured' ? 'text-emerald-400' : 'text-rose-455'}`}>
                     {gpsData.status}
                   </span>
-                  <span className="text-dark-500">•</span>
-                  <span className="text-dark-300">Worksite Distance: {gpsData.distance === Infinity ? 'N/A' : `${gpsData.distance}m`}</span>
+                  {gpsData.lat && (
+                    <>
+                      <span className="text-dark-500">•</span>
+                      <span className="text-dark-300 font-semibold font-mono">Coords: {gpsData.lat}, {gpsData.lon}</span>
+                    </>
+                  )}
                   <span className="text-dark-500">•</span>
                   <span className="text-dark-400 text-[10px]">Precision: {gpsData.accuracy}m</span>
                 </div>
@@ -806,15 +800,6 @@ export default function AttendanceScanner() {
             >
               Recenter GPS
             </button>
-            {gpsData && gpsData.status === 'Invalid Location' && (
-              <button
-                onClick={handleCalibrateGeofence}
-                className="flex-1 md:flex-initial px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-md glow-green transition"
-                title="Re-centers geofence map coordinates to match your current supervisor browser coordinate coordinates."
-              >
-                Calibrate Center
-              </button>
-            )}
           </div>
         </div>
 
@@ -1344,15 +1329,31 @@ export default function AttendanceScanner() {
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold border ${
                     f.status === 'Recognized'
                       ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                      : f.status === 'Manual Review'
-                        ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                        : f.status === 'Already Checked In' || f.status === 'Already Checked Out' || f.status === 'No Active Check-In'
-                          ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
-                          : 'bg-rose-500/10 border-rose-500/20 text-rose-500 animate-pulse'
+                      : f.status === 'Blink Required'
+                        ? 'bg-amber-500/10 border-amber-500/20 text-amber-400 animate-pulse'
+                        : f.status === 'Manual Review'
+                          ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                          : f.status === 'Already Checked In' || f.status === 'Already Checked Out' || f.status === 'No Active Check-In'
+                            ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
+                            : 'bg-rose-500/10 border-rose-500/20 text-rose-500 animate-pulse'
                   }`}>
                     {f.status}
                   </span>
                 </div>
+
+                {/* Eye Blink Liveness status */}
+                {f.empId !== 'UNKNOWN' && (f.status === 'Recognized' || f.status === 'Blink Required') && (
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="text-dark-500 font-medium">Eye Blink Check:</span>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold border ${
+                      f.blinkDetected
+                        ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                        : 'bg-amber-500/10 border-amber-500/20 text-amber-400 animate-pulse font-mono text-[9px]'
+                    }`}>
+                      {f.blinkDetected ? 'Blink Detected ✓' : 'Blink to verify'}
+                    </span>
+                  </div>
+                )}
 
                 {/* Telemetry indexes */}
                 <div className="grid grid-cols-3 gap-1 bg-dark-950 p-2 rounded-lg text-center border border-dark-850">

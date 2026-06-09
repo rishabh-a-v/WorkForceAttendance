@@ -88,7 +88,7 @@ export default function SupervisorPortal({ currentUser }) {
     setGpsData(null);
 
     if (!navigator.geolocation) {
-      setGpsData({ lat: null, lon: null, distance: Infinity, status: 'GPS Unavailable' });
+      setGpsData({ lat: null, lon: null, status: 'GPS Unavailable' });
       setGpsLoading(false);
       return;
     }
@@ -96,17 +96,15 @@ export default function SupervisorPortal({ currentUser }) {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
-        const dist = calculateDistanceInMeters(latitude, longitude, WORKSITE.LATITUDE, WORKSITE.LONGITUDE);
         setGpsData({
           lat: latitude.toFixed(6),
           lon: longitude.toFixed(6),
-          distance: dist,
-          status: dist <= WORKSITE.RADIUS_METERS ? 'Valid Location' : 'Invalid Location'
+          status: 'GPS Captured'
         });
         setGpsLoading(false);
       },
       () => {
-        setGpsData({ lat: null, lon: null, distance: Infinity, status: 'GPS Unavailable' });
+        setGpsData({ lat: null, lon: null, status: 'GPS Unavailable' });
         setGpsLoading(false);
       },
       { enableHighAccuracy: true, timeout: 8000 }
@@ -369,7 +367,7 @@ export default function SupervisorPortal({ currentUser }) {
         const avgSimilarity = consensusRecs.reduce((a, b) => a + (b.rec.confidence || 30), 0) / consensusRecs.length;
 
         const framesLivenessData = qualityDetails.map((q) => ({
-          ear: q.leftEAR ? (q.leftEAR + q.rightEAR) / 2 : 0.3,
+          ear: (q.leftEAR !== undefined && q.rightEAR !== undefined) ? (q.leftEAR + q.rightEAR) / 2 : 0.3,
           yaw: q.yaw || 1.0,
           passiveLiveness: q.passiveLiveness || 95
         }));
@@ -411,7 +409,11 @@ export default function SupervisorPortal({ currentUser }) {
           } else if (!isGroupCheckInRef.current && alreadyCheckedOut) {
             status = 'Already Checked Out';
           } else if (finalScore >= 75) {
-            status = 'Recognized';
+            if (livenessResult.blinkDetected) {
+              status = 'Recognized';
+            } else {
+              status = 'Blink Required';
+            }
           } else if (finalScore >= 60) {
             status = 'Manual Review';
           }
@@ -442,6 +444,7 @@ export default function SupervisorPortal({ currentUser }) {
           qualityScore: avgQuality,
           livenessScore: livenessScore,
           similarityScore: Math.round(avgSimilarity),
+          blinkDetected: livenessResult.blinkDetected,
           biometricsReport: consensusRecs[0]?.rec.report || compareBiometrics(generateBiometrics('Unknown Face', true), generateBiometrics('Unknown Face', true))
         };
       }));
@@ -469,7 +472,8 @@ export default function SupervisorPortal({ currentUser }) {
           f.status === 'Unregistered Person' || 
           f.status === 'Already Checked In' || 
           f.status === 'Already Checked Out' || 
-          f.status === 'No Active Check-In') return;
+          f.status === 'No Active Check-In' ||
+          f.status === 'Blink Required') return;
 
       if (sessionLoggedIds.current.has(f.empId)) return;
 
@@ -770,7 +774,7 @@ export default function SupervisorPortal({ currentUser }) {
         </div>
       </div>
 
-      {/* Geofence Info & Console Toolbar */}
+      {/* GPS Info & Console Toolbar */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2 glass-panel p-5 rounded-2xl border border-dark-800/60 flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center space-x-3.5">
@@ -778,18 +782,22 @@ export default function SupervisorPortal({ currentUser }) {
               <MapPin className="h-5.5 w-5.5" />
             </div>
             <div>
-              <p className="text-[10px] uppercase font-bold text-dark-400">Site Geofencing Status</p>
+              <p className="text-[10px] uppercase font-bold text-dark-400">GPS Location Status</p>
               {gpsLoading ? (
                 <p className="text-xs font-semibold text-dark-300 mt-1 flex items-center">
-                  <RefreshCw className="h-3 w-3 mr-1 animate-spin text-violet-400" /> Tracking browser GPS perimeter...
+                  <RefreshCw className="h-3 w-3 mr-1 animate-spin text-violet-400" /> Tracking browser GPS coordinates...
                 </p>
               ) : gpsData ? (
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-xs">
-                  <span className={`font-extrabold ${gpsData.status === 'Valid Location' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  <span className={`font-extrabold ${gpsData.status === 'GPS Captured' ? 'text-emerald-400' : 'text-rose-455'}`}>
                     {gpsData.status}
                   </span>
-                  <span className="text-dark-500">•</span>
-                  <span className="text-dark-300">Worksite Distance: {gpsData.distance === Infinity ? 'N/A' : `${gpsData.distance}m`}</span>
+                  {gpsData.lat && (
+                    <>
+                      <span className="text-dark-500">•</span>
+                      <span className="text-dark-300 font-semibold font-mono">Coords: {gpsData.lat}, {gpsData.lon}</span>
+                    </>
+                  )}
                   <span className="text-dark-500">•</span>
                   <span className="text-dark-400 text-[10px]">Precision: {gpsData.accuracy || '8'}m</span>
                 </div>
@@ -1309,7 +1317,7 @@ export default function SupervisorPortal({ currentUser }) {
                             ? 'border-violet-550 bg-violet-950/5' 
                             : isUnknown 
                               ? 'border-rose-500/50 bg-rose-500/5' 
-                              : isManualReview 
+                              : isManualReview || f.status === 'Blink Required'
                                 ? 'border-amber-500/50 bg-amber-500/5' 
                                 : f.status === 'Already Checked In' || f.status === 'Already Checked Out' || f.status === 'No Active Check-In'
                                   ? 'border-blue-500/50 bg-blue-500/5'
@@ -1354,7 +1362,7 @@ export default function SupervisorPortal({ currentUser }) {
                               ? 'bg-violet-500/10 border-violet-500/20 text-violet-400'
                               : isUnknown
                                 ? 'bg-rose-500/10 border-rose-500/20 text-rose-455 animate-pulse'
-                                : isManualReview
+                                : isManualReview || f.status === 'Blink Required'
                                   ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
                                   : f.status === 'Already Checked In' || f.status === 'Already Checked Out' || f.status === 'No Active Check-In'
                                     ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
@@ -1363,6 +1371,20 @@ export default function SupervisorPortal({ currentUser }) {
                             {f.isOverride ? 'Supervisor Override' : f.status}
                           </span>
                         </div>
+
+                        {/* Eye Blink Check */}
+                        {f.empId !== 'UNKNOWN' && (f.status === 'Recognized' || f.status === 'Blink Required') && (
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="text-dark-500 font-medium">Eye Blink Check:</span>
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold border text-[8px] uppercase tracking-wider ${
+                              f.blinkDetected
+                                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                                : 'bg-amber-500/10 border-amber-500/20 text-amber-400 animate-pulse font-mono'
+                            }`}>
+                              {f.blinkDetected ? 'Blink Detected ✓' : 'Blink to verify'}
+                            </span>
+                          </div>
+                        )}
 
                         {/* Telemetry data indexes */}
                         <div className="grid grid-cols-3 gap-1 bg-dark-950 p-2 rounded-lg text-center border border-dark-850">

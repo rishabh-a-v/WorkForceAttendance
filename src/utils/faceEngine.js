@@ -133,6 +133,12 @@ export const assessPassiveLiveness = (ctx, w, h) => {
 export const assessFaceQuality = (canvas, box, landmarks, detectionScore = 1.0) => {
   void detectionScore;
   // All quality controls are bypassed to maximize compatibility with low-end/budget devices
+  let leftEAR = 0.3;
+  let rightEAR = 0.3;
+  if (landmarks && landmarks.length >= 48) {
+    leftEAR = calculateEAR(landmarks.slice(36, 42));
+    rightEAR = calculateEAR(landmarks.slice(42, 48));
+  }
   return { 
     passed: true, 
     reason: "Pass", 
@@ -142,8 +148,8 @@ export const assessFaceQuality = (canvas, box, landmarks, detectionScore = 1.0) 
     yaw: 0, 
     pitch: 0, 
     isPartial: false, 
-    leftEAR: 0.3, 
-    rightEAR: 0.3, 
+    leftEAR, 
+    rightEAR, 
     passiveLiveness: 95 
   };
 };

@@ -215,7 +215,7 @@ export default function EmployeePortal({ currentUser, onLogout }) {
     setGpsData(null);
 
     if (!navigator.geolocation) {
-      setGpsData({ lat: null, lon: null, distance: Infinity, status: 'GPS Unavailable' });
+      setGpsData({ lat: null, lon: null, status: 'GPS Unavailable' });
       setGpsLoading(false);
       return;
     }
@@ -223,17 +223,15 @@ export default function EmployeePortal({ currentUser, onLogout }) {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
-        const dist = calculateDistanceInMeters(latitude, longitude, WORKSITE.LATITUDE, WORKSITE.LONGITUDE);
         setGpsData({
           lat: latitude.toFixed(6),
           lon: longitude.toFixed(6),
-          distance: dist,
-          status: dist <= WORKSITE.RADIUS_METERS ? 'Valid Location' : 'Invalid Location'
+          status: 'GPS Captured'
         });
         setGpsLoading(false);
       },
       (error) => {
-        setGpsData({ lat: null, lon: null, distance: Infinity, status: 'GPS Unavailable' });
+        setGpsData({ lat: null, lon: null, status: 'GPS Unavailable' });
         setGpsLoading(false);
       },
       { enableHighAccuracy: true, timeout: 8000 }
@@ -459,7 +457,7 @@ export default function EmployeePortal({ currentUser, onLogout }) {
         const avgSimilarity = consensusRecs.reduce((a, b) => a + (b.rec.confidence || 30), 0) / consensusRecs.length;
 
         const framesLivenessData = qualityDetails.map((q) => ({
-          ear: q.leftEAR ? (q.leftEAR + q.rightEAR) / 2 : 0.3,
+          ear: (q.leftEAR !== undefined && q.rightEAR !== undefined) ? (q.leftEAR + q.rightEAR) / 2 : 0.3,
           yaw: q.yaw || 1.0,
           passiveLiveness: q.passiveLiveness || 95
         }));
@@ -501,7 +499,11 @@ export default function EmployeePortal({ currentUser, onLogout }) {
           } else if (!isCheckInRef.current && alreadyCheckedOut) {
             status = 'Already Checked Out';
           } else if (finalScore >= 75) {
-            status = 'Recognized';
+            if (livenessResult.blinkDetected) {
+              status = 'Recognized';
+            } else {
+              status = 'Blink Required';
+            }
           } else if (finalScore >= 60) {
             status = 'Manual Review';
           }
@@ -536,7 +538,8 @@ export default function EmployeePortal({ currentUser, onLogout }) {
           livenessScore: livenessScore,
           similarityScore: Math.round(avgSimilarity),
           biometricsReport: consensusRecs[0]?.rec.report || compareBiometrics(generateBiometrics('Unknown Face', true), generateBiometrics('Unknown Face', true)),
-          spoofDetected: livenessResult.spoofDetected
+          spoofDetected: livenessResult.spoofDetected,
+          blinkDetected: livenessResult.blinkDetected
         };
       }));
 
@@ -574,6 +577,12 @@ export default function EmployeePortal({ currentUser, onLogout }) {
             return;
           }
 
+          if (status === 'Blink Required') {
+            setScanStatusMsg('Blink detected: No. Please blink your eyes to mark attendance.');
+            scanTimeoutRef.current = setTimeout(runAutoScanLoop, 350);
+            return;
+          }
+
           if (status === 'Recognized' || status === 'Manual Review') {
             scanLoopActive.current = false;
             const photoBase64 = canvas.toDataURL('image/jpeg', 0.85);
@@ -582,7 +591,7 @@ export default function EmployeePortal({ currentUser, onLogout }) {
 
             const gpsStatus = gpsDataRef.current ? gpsDataRef.current.status : 'GPS Unavailable';
             let resolutionStatus = 'Approved';
-            if (status === 'Manual Review' || gpsStatus === 'Invalid Location') {
+            if (status === 'Manual Review') {
               resolutionStatus = 'Verification Required';
             }
 
@@ -794,12 +803,12 @@ export default function EmployeePortal({ currentUser, onLogout }) {
             <div className="flex items-center space-x-3 w-full md:w-auto">
               {/* GPS Info */}
               <div className="text-right text-[10px] leading-normal hidden sm:block">
-                <p className="text-dark-500 font-bold uppercase tracking-wider">Perimeter Distance</p>
+                <p className="text-dark-500 font-bold uppercase tracking-wider">GPS Coordinates</p>
                 {gpsLoading ? (
                   <p className="text-dark-400 mt-0.5">Fetching location coordinates...</p>
-                ) : gpsData ? (
-                  <p className={`font-bold ${gpsData.status === 'Valid Location' ? 'text-emerald-400' : 'text-rose-400'} mt-0.5`}>
-                    {gpsData.status} ({gpsData.distance === Infinity ? 'N/A' : `${gpsData.distance}m`})
+                ) : gpsData && gpsData.lat ? (
+                  <p className="text-emerald-400 font-bold mt-0.5">
+                    {gpsData.lat}, {gpsData.lon}
                   </p>
                 ) : (
                   <p className="text-dark-500 mt-0.5">GPS Offline</p>
@@ -814,19 +823,15 @@ export default function EmployeePortal({ currentUser, onLogout }) {
                 <span>Logout Portal</span>
               </button>
             </div>
-          </div>
-
-          {/* Geofence Location Status Bar */}
+          </div>          {/* GPS Location Status Bar */}
           <div className="glass-panel p-4 rounded-2xl border border-dark-800/60 flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
             <div className="flex items-center space-x-3.5 w-full md:w-auto">
               <div className={`p-2.5 rounded-xl border ${
                 gpsLoading 
                   ? 'bg-brand-500/10 border-brand-500/20 text-brand-400'
-                  : gpsData?.status === 'Valid Location'
+                  : gpsData?.status === 'GPS Captured'
                     ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                    : gpsData?.status === 'Invalid Location'
-                      ? 'bg-rose-500/10 border-rose-500/20 text-rose-450'
-                      : 'bg-dark-800/40 border-dark-800/60 text-dark-400'
+                    : 'bg-dark-800/40 border-dark-800/60 text-dark-400'
               }`}>
                 <MapPin className="h-5 w-5" />
               </div>
@@ -838,15 +843,13 @@ export default function EmployeePortal({ currentUser, onLogout }) {
                   </p>
                 ) : gpsData ? (
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5 text-xs">
-                    <span className={`font-extrabold ${gpsData.status === 'Valid Location' ? 'text-emerald-400' : 'text-rose-450'}`}>
+                    <span className={`font-extrabold ${gpsData.status === 'GPS Captured' ? 'text-emerald-400' : 'text-rose-450'}`}>
                       {gpsData.status}
                     </span>
-                    <span className="text-dark-500">•</span>
-                    <span className="text-dark-300 font-semibold">Distance: {gpsData.distance === Infinity ? 'N/A' : `${Math.round(gpsData.distance)}m from worksite`}</span>
                     {gpsData.lat && (
                       <>
                         <span className="text-dark-500">•</span>
-                        <span className="text-dark-400 text-[10px] font-mono">Coords: {gpsData.lat}, {gpsData.lon}</span>
+                        <span className="text-dark-300 font-semibold font-mono">Coords: {gpsData.lat}, {gpsData.lon}</span>
                       </>
                     )}
                   </div>
@@ -1055,11 +1058,27 @@ export default function EmployeePortal({ currentUser, onLogout }) {
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold border text-[9px] ${
                             f.status === 'Recognized'
                               ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                              : 'bg-rose-500/10 border-rose-500/20 text-rose-500'
+                              : f.status === 'Blink Required'
+                                ? 'bg-amber-500/10 border-amber-500/20 text-amber-400 animate-pulse'
+                                : 'bg-rose-500/10 border-rose-500/20 text-rose-500'
                           }`}>
                             {f.status}
                           </span>
                         </div>
+
+                        {/* Eye Blink Check */}
+                        {f.empId !== 'UNKNOWN' && (f.status === 'Recognized' || f.status === 'Blink Required') && (
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="text-dark-500 font-medium">Eye Blink Check:</span>
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold border text-[9px] ${
+                              f.blinkDetected
+                                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                                : 'bg-amber-500/10 border-amber-500/20 text-amber-400 animate-pulse'
+                            }`}>
+                              {f.blinkDetected ? 'Blink Detected ✓' : 'Blink to verify'}
+                            </span>
+                          </div>
+                        )}
 
                         {/* Telemetry indexes */}
                         <div className="grid grid-cols-3 gap-1 bg-dark-950 p-2 rounded-lg text-center border border-dark-850">

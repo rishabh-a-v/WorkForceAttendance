@@ -452,8 +452,9 @@ export default function Dashboard() {
               className="bg-dark-950 border border-dark-800 rounded-xl px-3 py-2.5 text-xs text-dark-300 focus:outline-none focus:border-brand-500 w-full"
             >
               <option value="All">All Geolocations</option>
-              <option value="Valid Location">Valid Location</option>
-              <option value="Invalid Location">Invalid Location</option>
+              <option value="GPS Captured">GPS Captured</option>
+              <option value="Valid Location">Valid Location (Old)</option>
+              <option value="Invalid Location">Invalid Location (Old)</option>
               <option value="GPS Unavailable">GPS Unavailable</option>
             </select>
 
@@ -552,7 +553,7 @@ export default function Dashboard() {
                     <td className="p-4 whitespace-nowrap">
                       <div className="flex flex-col space-y-1">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border w-max ${
-                          record.attendanceStatus === 'Valid Location'
+                          record.attendanceStatus === 'Valid Location' || record.attendanceStatus === 'GPS Captured'
                             ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                             : record.attendanceStatus === 'Invalid Location'
                               ? 'bg-rose-500/10 border-rose-500/20 text-rose-400 animate-pulse'
