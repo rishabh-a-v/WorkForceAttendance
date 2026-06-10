@@ -232,14 +232,16 @@ export const calculateMultiFrameLiveness = (framesData) => {
     const ears = framesData.map(f => f.ear || 0.3);
     const maxEar = Math.max(...ears);
     const minEar = Math.min(...ears);
-    if (maxEar - minEar >= 0.05) {
+    // Lowered relative difference threshold from 0.05 to 0.03, and added absolute closed-eye check <= 0.22
+    if (maxEar - minEar >= 0.03 || minEar <= 0.22) {
       blinkDetected = true;
     }
     
     const yaws = framesData.map(f => f.yaw || 1.0);
     const maxYaw = Math.max(...yaws);
     const minYaw = Math.min(...yaws);
-    if (maxYaw - minYaw >= 0.05) {
+    // Relaxed motion threshold from 0.05 to 0.04
+    if (maxYaw - minYaw >= 0.04) {
       motionDetected = true;
     }
   }
