@@ -497,7 +497,8 @@ export default function EmployeePortal({ currentUser, onLogout }) {
           } else if (!isCheckInRef.current && alreadyCheckedOut) {
             status = 'Already Checked Out';
           } else if (finalScore >= 75) {
-            if (livenessResult.blinkDetected) {
+            // Register success if EITHER blink OR motion (nod/head turn) is detected
+            if (livenessResult.blinkDetected || livenessResult.motionDetected) {
               status = 'Recognized';
             } else {
               status = 'Blink Required';
@@ -537,7 +538,8 @@ export default function EmployeePortal({ currentUser, onLogout }) {
           similarityScore: Math.round(avgSimilarity),
           biometricsReport: consensusRecs[0]?.rec.report || compareBiometrics(generateBiometrics('Unknown Face', true), generateBiometrics('Unknown Face', true)),
           spoofDetected: livenessResult.spoofDetected,
-          blinkDetected: livenessResult.blinkDetected
+          blinkDetected: livenessResult.blinkDetected,
+          motionDetected: livenessResult.motionDetected
         };
       }));
 
@@ -576,7 +578,7 @@ export default function EmployeePortal({ currentUser, onLogout }) {
           }
 
           if (status === 'Blink Required') {
-            setScanStatusMsg('Blink detected: No. Please blink your eyes to mark attendance.');
+            setScanStatusMsg('Liveness check: Please blink or turn your head to verify.');
             scanTimeoutRef.current = setTimeout(runAutoScanLoop, 350);
             return;
           }
@@ -1064,16 +1066,16 @@ export default function EmployeePortal({ currentUser, onLogout }) {
                           </span>
                         </div>
 
-                        {/* Eye Blink Check */}
+                        {/* Liveness Check */}
                         {f.empId !== 'UNKNOWN' && (f.status === 'Recognized' || f.status === 'Blink Required') && (
                           <div className="flex items-center justify-between text-[10px]">
-                            <span className="text-dark-500 font-medium">Eye Blink Check:</span>
+                            <span className="text-dark-500 font-medium">Liveness Check:</span>
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold border text-[9px] ${
-                              f.blinkDetected
+                              (f.blinkDetected || f.motionDetected)
                                 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                                 : 'bg-amber-500/10 border-amber-500/20 text-amber-400 animate-pulse'
                             }`}>
-                              {f.blinkDetected ? 'Blink Detected ✓' : 'Blink to verify'}
+                              {(f.blinkDetected || f.motionDetected) ? 'Verified ✓' : 'Blink or Turn Head'}
                             </span>
                           </div>
                         )}

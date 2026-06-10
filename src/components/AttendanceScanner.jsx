@@ -429,7 +429,8 @@ export default function AttendanceScanner() {
           } else if (!isCheckInRef.current && alreadyCheckedOut) {
             status = 'Already Checked Out';
           } else if (finalScore >= 65) {
-            if (livenessResult.blinkDetected) {
+            // Register success if EITHER blink OR motion (nod/head turn) is detected
+            if (livenessResult.blinkDetected || livenessResult.motionDetected) {
               status = 'Recognized';
             } else {
               status = 'Blink Required';
@@ -465,6 +466,7 @@ export default function AttendanceScanner() {
           livenessScore: livenessScore,
           similarityScore: Math.round(avgSimilarity),
           blinkDetected: livenessResult.blinkDetected,
+          motionDetected: livenessResult.motionDetected,
           biometricsReport: consensusRecs[0]?.rec.report || compareBiometrics(generateBiometrics('Unknown Face', true), generateBiometrics('Unknown Face', true))
         };
       }));
@@ -1338,16 +1340,16 @@ export default function AttendanceScanner() {
                   </span>
                 </div>
 
-                {/* Eye Blink Liveness status */}
+                {/* Liveness Check */}
                 {f.empId !== 'UNKNOWN' && (f.status === 'Recognized' || f.status === 'Blink Required') && (
                   <div className="flex items-center justify-between text-[10px]">
-                    <span className="text-dark-500 font-medium">Eye Blink Check:</span>
+                    <span className="text-dark-500 font-medium">Liveness Check:</span>
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold border ${
-                      f.blinkDetected
+                      (f.blinkDetected || f.motionDetected)
                         ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                         : 'bg-amber-500/10 border-amber-500/20 text-amber-400 animate-pulse font-mono text-[9px]'
                     }`}>
-                      {f.blinkDetected ? 'Blink Detected ✓' : 'Blink to verify'}
+                      {(f.blinkDetected || f.motionDetected) ? 'Verified ✓' : 'Blink or Turn Head'}
                     </span>
                   </div>
                 )}
