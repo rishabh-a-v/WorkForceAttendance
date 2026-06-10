@@ -166,12 +166,6 @@ export default function Dashboard() {
   }).length;
   
   const pendingReviews = attendance.filter(a => a.verificationStatus === 'Verification Required').length;
-  const lateArrivals = attendance.filter(a => {
-    if (!a.checkInTime) return false;
-    const checkIn = new Date(a.checkInTime);
-    // Let's assume late is after 9:05 AM
-    return checkIn.getHours() > 9 || (checkIn.getHours() === 9 && checkIn.getMinutes() > 5);
-  }).length;
   
   const attendanceRate = totalStaff > 0 ? Math.round((presentToday / totalStaff) * 100) : 0;
 
@@ -223,7 +217,7 @@ export default function Dashboard() {
       </div>
 
       {/* Metrics Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-5">
         <div className="glass-card p-3.5 sm:p-5 rounded-2xl border border-dark-800 flex items-center justify-between">
           <div className="space-y-1">
             <p className="text-[10px] uppercase font-bold tracking-wider text-dark-400">Total Workforce</p>
@@ -245,17 +239,6 @@ export default function Dashboard() {
           </div>
           <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20 glow-green text-emerald-400">
             <CheckCircle className="h-6 w-6" />
-          </div>
-        </div>
-
-        <div className="glass-card p-3.5 sm:p-5 rounded-2xl border border-dark-800 flex items-center justify-between">
-          <div className="space-y-1">
-            <p className="text-[10px] uppercase font-bold tracking-wider text-dark-400">Late Arrivals</p>
-            <h3 className="text-2xl font-display font-extrabold text-amber-400">{lateArrivals}</h3>
-            <p className="text-[9px] text-amber-500">⏰ Checked in after 9:05 AM</p>
-          </div>
-          <div className="p-3 bg-amber-500/10 rounded-xl border border-amber-500/20 glow-yellow text-amber-400">
-            <Clock className="h-6 w-6" />
           </div>
         </div>
 
