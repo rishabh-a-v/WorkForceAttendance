@@ -1,6 +1,8 @@
 // Google Apps Script Backend for WorkForce Attendance
 // Deploy this as a Web App: Execute as "Me", Access: "Anyone".
 
+const DRIVE_FOLDER_ID = '1nZMJ1PuI13WkhJkjlTsakF655i8QOuav'; // Paste your Google Drive Folder ID here
+
 const HEADERS = {
   Employees: ['id', 'name', 'designation', 'department', 'mobile', 'joinDate', 'status', 'role', 'password', 'registeredPhotos', 'biometrics'],
   Attendance: ['id', 'employeeId', 'employeeName', 'checkInTime', 'checkOutTime', 'latitude', 'longitude', 'confidence', 'qualityScore', 'livenessScore', 'similarityScore', 'verificationStatus', 'attendanceStatus', 'originalPhotoUrl', 'croppedFaceUrl'],
@@ -24,9 +26,25 @@ function doPost(e) {
         result = readSheet(ss.getSheetByName('Employees'), HEADERS.Employees);
         break;
       case 'saveEmployee':
+        if (payload.registeredPhotos && Array.isArray(payload.registeredPhotos)) {
+          payload.registeredPhotos = payload.registeredPhotos.map(function(photo, idx) {
+            return uploadImageToDrive(photo, "emp_" + payload.id + "_ref_" + (idx + 1) + ".jpg", DRIVE_FOLDER_ID);
+          });
+        }
+        if (payload.avatar) {
+          payload.avatar = uploadImageToDrive(payload.avatar, "emp_" + payload.id + "_avatar.jpg", DRIVE_FOLDER_ID);
+        }
         result = saveRow(ss.getSheetByName('Employees'), HEADERS.Employees, payload);
         break;
       case 'updateEmployee':
+        if (payload.registeredPhotos && Array.isArray(payload.registeredPhotos)) {
+          payload.registeredPhotos = payload.registeredPhotos.map(function(photo, idx) {
+            return uploadImageToDrive(photo, "emp_" + payload.id + "_ref_" + (idx + 1) + ".jpg", DRIVE_FOLDER_ID);
+          });
+        }
+        if (payload.avatar) {
+          payload.avatar = uploadImageToDrive(payload.avatar, "emp_" + payload.id + "_avatar.jpg", DRIVE_FOLDER_ID);
+        }
         result = updateRow(ss.getSheetByName('Employees'), HEADERS.Employees, payload.id, payload);
         break;
       case 'deleteEmployee':
@@ -45,6 +63,12 @@ function doPost(e) {
         result = deleteRow(ss.getSheetByName('Attendance'), payload.id);
         break;
       case 'savePhotos':
+        if (payload.originalPhoto) {
+          payload.originalPhoto = uploadImageToDrive(payload.originalPhoto, "photo_" + payload.attendanceId + "_orig.jpg", DRIVE_FOLDER_ID);
+        }
+        if (payload.croppedFace) {
+          payload.croppedFace = uploadImageToDrive(payload.croppedFace, "photo_" + payload.attendanceId + "_cropped.jpg", DRIVE_FOLDER_ID);
+        }
         result = saveRow(ss.getSheetByName('Photos') || createPhotosSheet(ss), ['id', 'attendanceId', 'originalPhoto', 'croppedFace', 'timestamp'], payload);
         break;
       case 'getPhotos':
@@ -251,3 +275,23 @@ function handleChangePassword(ss, payload) {
   updateRow(sheet, HEADERS.Employees, userId, { password: newPassword });
   return { success: true, employee: { ...emp, password: newPassword } };
 }
+
+function uploadImageToDrive(base64Data, filename, folderId) {
+  if (!base64Data || typeof base64Data !== 'string' || !base64Data.startsWith('data:image')) {
+    return base64Data; // Already a URL or empty
+  }
+  try {
+    var folder = DriveApp.getFolderById(folderId);
+    var parts = base64Data.split(',');
+    var base64Image = parts[1] || parts[0];
+    var decoded = Utilities.base64Decode(base64Image);
+    var blob = Utilities.newBlob(decoded, 'image/jpeg', filename);
+    var file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    return file.getUrl();
+  } catch (e) {
+    Logger.log("Drive upload failed for " + filename + ": " + e.message);
+    return base64Data; // Fallback
+  }
+}
+
