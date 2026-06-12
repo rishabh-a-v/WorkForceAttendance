@@ -640,10 +640,14 @@ dbService.saveEmployee = (employee) => {
   return result;
 };
 
-dbService.updateEmployee = (employeeId, updatedFields) => {
-  const result = _orig.updateEmployee(employeeId, updatedFields);
-  if (result.success) apiCall('PUT', `/api/employees/${employeeId}`, updatedFields);
-  return result;
+dbService.updateEmployee = async (employeeId, updatedFields) => {
+  if (API_BASE && API_BASE !== 'disabled') {
+    const apiResult = await apiCall('PUT', `/api/employees/${employeeId}`, updatedFields);
+    if (!apiResult || !apiResult.success) {
+      return { success: false, error: apiResult?.error || 'Failed to update employee on the backend.' };
+    }
+  }
+  return _orig.updateEmployee(employeeId, updatedFields);
 };
 
 dbService.deleteEmployee = (employeeId) => {

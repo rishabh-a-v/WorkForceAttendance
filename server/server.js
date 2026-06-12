@@ -163,9 +163,14 @@ app.post('/api/employees', async (req, res) => {
 });
 
 app.put('/api/employees/:id', async (req, res) => {
+  // Protect password from being overwritten with empty value
+  if (req.body.password === undefined || req.body.password === null || (typeof req.body.password === 'string' && !req.body.password.trim())) {
+    delete req.body.password;
+  }
+
   if (googleSheets.isConfigured()) {
     const employees = await googleSheets.getEmployees();
-    const emp = employees.find(e => e.id === req.params.id);
+    const emp = employees.find(e => e.id && e.id.toString().trim().toLowerCase() === req.params.id.toString().trim().toLowerCase());
     if (!emp) return res.status(404).json({ success: false, error: 'Employee not found' });
 
     const oldValue = JSON.stringify(emp);
@@ -181,7 +186,7 @@ app.put('/api/employees/:id', async (req, res) => {
 
   // Fallback JSON mode
   const employees = readJSON(FILES.employees);
-  const idx = employees.findIndex(e => e.id === req.params.id);
+  const idx = employees.findIndex(e => e.id && e.id.toString().trim().toLowerCase() === req.params.id.toString().trim().toLowerCase());
   if (idx === -1) return res.status(404).json({ success: false, error: 'Employee not found' });
 
   const oldValue = JSON.stringify(employees[idx]);
@@ -197,7 +202,7 @@ app.put('/api/employees/:id', async (req, res) => {
 app.delete('/api/employees/:id', async (req, res) => {
   if (googleSheets.isConfigured()) {
     const employees = await googleSheets.getEmployees();
-    const deleted = employees.find(e => e.id === req.params.id);
+    const deleted = employees.find(e => e.id && e.id.toString().trim().toLowerCase() === req.params.id.toString().trim().toLowerCase());
     if (!deleted) return res.status(404).json({ success: false, error: 'Employee not found' });
 
     await googleSheets.deleteEmployee(req.params.id);
@@ -209,7 +214,7 @@ app.delete('/api/employees/:id', async (req, res) => {
 
   // Fallback JSON mode
   const employees = readJSON(FILES.employees);
-  const idx = employees.findIndex(e => e.id === req.params.id);
+  const idx = employees.findIndex(e => e.id && e.id.toString().trim().toLowerCase() === req.params.id.toString().trim().toLowerCase());
   if (idx === -1) return res.status(404).json({ success: false, error: 'Employee not found' });
 
   const deleted = employees[idx];
@@ -225,7 +230,7 @@ app.delete('/api/employees/:id', async (req, res) => {
 app.post('/api/employees/:id/samples', async (req, res) => {
   if (googleSheets.isConfigured()) {
     const employees = await googleSheets.getEmployees();
-    const emp = employees.find(e => e.id === req.params.id);
+    const emp = employees.find(e => e.id && e.id.toString().trim().toLowerCase() === req.params.id.toString().trim().toLowerCase());
     if (!emp) return res.status(404).json({ success: false, error: 'Employee not found' });
 
     if (!emp.samples) emp.samples = [];
@@ -257,7 +262,7 @@ app.post('/api/employees/:id/samples', async (req, res) => {
 
   // Fallback JSON mode
   const employees = readJSON(FILES.employees);
-  const idx = employees.findIndex(e => e.id === req.params.id);
+  const idx = employees.findIndex(e => e.id && e.id.toString().trim().toLowerCase() === req.params.id.toString().trim().toLowerCase());
   if (idx === -1) return res.status(404).json({ success: false, error: 'Employee not found' });
 
   const emp = employees[idx];
@@ -288,7 +293,7 @@ app.post('/api/employees/:id/samples', async (req, res) => {
 app.delete('/api/employees/:id/samples/:sampleId', async (req, res) => {
   if (googleSheets.isConfigured()) {
     const employees = await googleSheets.getEmployees();
-    const emp = employees.find(e => e.id === req.params.id);
+    const emp = employees.find(e => e.id && e.id.toString().trim().toLowerCase() === req.params.id.toString().trim().toLowerCase());
     if (!emp) return res.status(404).json({ success: false, error: 'Employee not found' });
 
     if (!emp.samples || emp.samples.length <= 1)
@@ -324,7 +329,7 @@ app.delete('/api/employees/:id/samples/:sampleId', async (req, res) => {
 
   // Fallback JSON mode
   const employees = readJSON(FILES.employees);
-  const idx = employees.findIndex(e => e.id === req.params.id);
+  const idx = employees.findIndex(e => e.id && e.id.toString().trim().toLowerCase() === req.params.id.toString().trim().toLowerCase());
   if (idx === -1) return res.status(404).json({ success: false, error: 'Employee not found' });
 
   const emp = employees[idx];

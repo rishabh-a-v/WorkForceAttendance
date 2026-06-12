@@ -214,7 +214,7 @@ async function updateRow(sheetName, id, updatedFields) {
       range: `${sheetName}!A2:Z`
     });
     const rows = res.data.values || [];
-    const rowIndex = rows.findIndex(row => row[0] === id);
+    const rowIndex = rows.findIndex(row => row[0] && row[0].toString().trim().toLowerCase() === id.toString().trim().toLowerCase());
     if (rowIndex === -1) {
       console.warn(`[Google Sheets] Update rejected: ID ${id} not found in ${sheetName}`);
       return false;
@@ -267,7 +267,7 @@ async function deleteRow(sheetName, id) {
       range: `${sheetName}!A2:A`
     });
     const rows = res.data.values || [];
-    const rowIndex = rows.findIndex(row => row[0] === id);
+    const rowIndex = rows.findIndex(row => row[0] && row[0].toString().trim().toLowerCase() === id.toString().trim().toLowerCase());
     if (rowIndex === -1) return false;
 
     const sheetId = sheetIds[sheetName];

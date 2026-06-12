@@ -472,8 +472,10 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody className="divide-y divide-dark-900/40 text-dark-200">
-              {filteredAttendance.map((record) => {
-                const checkInDate = new Date(record.checkInTime);
+              {[...filteredAttendance]
+                .sort((a, b) => new Date(b.checkInTime) - new Date(a.checkInTime))
+                .map((record) => {
+                  const checkInDate = new Date(record.checkInTime);
                 const checkOutDate = record.checkOutTime ? new Date(record.checkOutTime) : null;
                 
                 return (

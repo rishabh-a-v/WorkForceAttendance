@@ -381,14 +381,14 @@ export default function RegisterEmployee() {
     setEditMobile(emp.mobile || '');
     setEditDesignation(emp.designation || '');
     setEditDepartment(emp.department || 'Packing');
-    setEditPassword(emp.password || '');
+    setEditPassword('');
     setEditRole(emp.role || 'employee');
     setEditErrorMsg('');
     setEditSuccessMsg('');
     setSelectedEmpForEditing(emp);
   };
 
-  const handleSaveEdit = (e) => {
+  const handleSaveEdit = async (e) => {
     e.preventDefault();
     setEditErrorMsg('');
     setEditSuccessMsg('');
@@ -396,14 +396,17 @@ export default function RegisterEmployee() {
       setEditErrorMsg('Name and Designation are required.');
       return;
     }
-    const res = dbService.updateEmployee(selectedEmpForEditing.id, {
+    const updatedFields = {
       name: editName.trim(),
       mobile: editMobile.trim(),
       designation: editDesignation.trim(),
       department: editDepartment,
-      password: editPassword,
       role: editRole,
-    });
+    };
+    if (editPassword.trim()) {
+      updatedFields.password = editPassword.trim();
+    }
+    const res = await dbService.updateEmployee(selectedEmpForEditing.id, updatedFields);
     if (res.success) {
       setEmployees(dbService.getEmployees());
       setEditSuccessMsg('Employee details updated successfully.');
@@ -588,64 +591,6 @@ export default function RegisterEmployee() {
     } else {
       setSampleErrorMsg(res.error);
     }
-  };
-
-  const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setErrorMsg('');
-    setSuccessMsg('');
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const img = new Image();
-      img.onload = async () => {
-        try {
-          // Downscale to ≤600px — TinyFaceDetector works best at modest resolutions
-          const maxDim = 600;
-          let w = img.width;
-          let h = img.height;
-          if (w > maxDim || h > maxDim) {
-            if (w > h) { h = Math.round((h * maxDim) / w); w = maxDim; }
-            else        { w = Math.round((w * maxDim) / h); h = maxDim; }
-          }
-          const canvas = document.createElement('canvas');
-          canvas.width = w;
-          canvas.height = h;
-          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-
-          // Use the file-optimised detector (progressive thresholds, larger input sizes)
-          const faceBox = await detectFaceInFile(canvas);
-
-          // Align & crop using landmarks when available; fallback to centre-crop
-          const alignedCanvas = alignAndCropFace(canvas, faceBox.landmarks || faceBox);
-          const cropBase64 = alignedCanvas.toDataURL('image/jpeg', 0.85);
-
-          // Extract 128-dim descriptor — this is the core quality signal
-          const imgVector = await getFaceDescriptor(alignedCanvas);
-          if (!imgVector) {
-            setErrorMsg('Could not extract facial features from this image. Please use a clearer front-facing portrait and try again.');
-            return;
-          }
-          const imgBio = extractBiometricsFromCanvas(alignedCanvas);
-
-          setCapturedImages(prev => [...prev, cropBase64]);
-          setCapturedVectors(prev => [...prev, imgVector]);
-          setCapturedBiometrics(prev => [...prev, imgBio]);
-
-          if (!faceBox.detected) {
-            setErrorMsg(prev => prev ? prev : 'ⓘ Face auto-detection was uncertain — image enrolled using centre-crop fallback. For best accuracy use a clear front-facing portrait.');
-          }
-        } catch (err) {
-          console.error('File parsing error:', err);
-          setErrorMsg(`Failed to process image file: ${err.message || err}`);
-        }
-      };
-      img.src = event.target.result;
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
   };
 
   const handleSampleFileUpload = async (e) => {
@@ -910,18 +855,8 @@ export default function RegisterEmployee() {
                       >
                         Start Camera
                       </button>
-                      <span className="text-[10px] text-dark-500 font-bold">OR</span>
-                      <label className="px-4 py-2 bg-dark-900 hover:bg-dark-850 border border-dark-800 rounded-xl text-xs font-bold text-brand-400 transition cursor-pointer flex items-center">
-                        <span>Upload File</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleFileUpload}
-                          className="hidden"
-                        />
-                      </label>
                     </div>
-                    <p className="text-[9px] text-dark-500 leading-normal">Webcam or clear portrait image files (JPG, PNG) can be used.</p>
+                    <p className="text-[9px] text-dark-500 leading-normal">Webcam capture is required for registration.</p>
                   </div>
                 )
               )}
