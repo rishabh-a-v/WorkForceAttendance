@@ -312,7 +312,13 @@ export default function RegisterEmployee() {
     setErrorMsg('');
     setSuccessMsg('');
     
-    if (!id || !name || !mobile || !designation) {
+    const trimmedId = id.trim();
+    const trimmedName = name.trim();
+    const trimmedMobile = mobile.trim();
+    const trimmedDesignation = designation.trim();
+    const trimmedPassword = password.trim();
+    
+    if (!trimmedId || !trimmedName || !trimmedMobile || !trimmedDesignation) {
       setErrorMsg('All demographic fields are required.');
       return;
     }
@@ -323,7 +329,7 @@ export default function RegisterEmployee() {
     }
 
     const samples = capturedImages.map((img, idx) => ({
-      id: `SAMP_${id}_${idx + 1}`,
+      id: `SAMP_${trimmedId}_${idx + 1}`,
       vector: capturedVectors[idx],
       avatar: img,
       quality: { blur: 18.0, brightness: 120, contrast: 50, eyeVisible: true, headYaw: 1.0, headPitch: 1.0, isPartial: false, passed: true },
@@ -334,12 +340,12 @@ export default function RegisterEmployee() {
     const trainedBiometrics = trainEmployeeFace(capturedVectors, capturedBiometrics);
 
     const newEmployee = {
-      id,
-      name,
-      mobile,
+      id: trimmedId,
+      name: trimmedName,
+      mobile: trimmedMobile,
       department,
-      designation,
-      password,
+      designation: trimmedDesignation,
+      password: trimmedPassword,
       role: empRole,
       avatar: capturedImages[0], // First crop acts as avatar
       registeredPhotos: capturedImages,

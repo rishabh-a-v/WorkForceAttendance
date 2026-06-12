@@ -506,8 +506,10 @@ export const dbService = {
 
   // --- Auth & Credentials ---
   authenticate: (username, password) => {
+    const cleanUsername = (username || '').toString().trim().toLowerCase();
+    
     // 1. Check admin credentials
-    if (username.toLowerCase() === 'admin') {
+    if (cleanUsername === 'admin') {
       const superPwd = localStorage.getItem('wf_supervisor_password') || 'admin123';
       if (password === superPwd) {
         dbService.logAction(
@@ -525,7 +527,11 @@ export const dbService = {
 
     // 2. Check employee credentials
     const employees = get(KEYS.EMPLOYEES);
-    const emp = employees.find(e => e.id.toLowerCase() === username.toLowerCase() || e.name.toLowerCase() === username.toLowerCase());
+    const emp = employees.find(e => {
+      const sheetId = (e.id || '').toString().trim().toLowerCase();
+      const sheetName = (e.name || '').toString().trim().toLowerCase();
+      return sheetId === cleanUsername || sheetName === cleanUsername;
+    });
     
     if (!emp) {
       return { success: false, error: 'User profile not found in system directory.' };

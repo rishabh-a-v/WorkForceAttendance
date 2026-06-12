@@ -25,7 +25,7 @@ export default function Login({ onLoginSuccess, initialTab = 'admin' }) {
     await new Promise((resolve) => setTimeout(resolve, 800));
 
     // Resolve the effective username for the auth call
-    const authUsername = activeTab === 'admin' ? 'admin' : username;
+    const authUsername = (activeTab === 'admin' ? 'admin' : username).trim();
 
     if (!authUsername || !password) {
       setErrorMsg('Please specify both your username and password.');

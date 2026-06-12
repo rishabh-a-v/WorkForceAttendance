@@ -172,7 +172,7 @@ function updateRow(sheet, headers, id, updatedFields) {
   if (lastRow < 2) return { success: false, error: 'Empty sheet' };
   
   const values = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-  const rowIndex = values.findIndex(r => String(r[0]) === String(id));
+  const rowIndex = values.findIndex(r => String(r[0]).trim().toLowerCase() === String(id).trim().toLowerCase());
   if (rowIndex === -1) return { success: false, error: 'ID not found' };
   
   const sheetRow = rowIndex + 2;
@@ -204,7 +204,7 @@ function deleteRow(sheet, id) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return { success: false };
   const values = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-  const rowIndex = values.findIndex(r => String(r[0]) === String(id));
+  const rowIndex = values.findIndex(r => String(r[0]).trim().toLowerCase() === String(id).trim().toLowerCase());
   if (rowIndex === -1) return { success: false };
   sheet.deleteRow(rowIndex + 2);
   return { success: true };
@@ -241,7 +241,9 @@ function setConfig(ss, key, value) {
 }
 
 function handleLogin(ss, username, password) {
-  if (username.toLowerCase() === 'admin') {
+  const cleanUsername = String(username || '').trim().toLowerCase();
+  
+  if (cleanUsername === 'admin') {
     const adminPassword = getConfig(ss, 'adminPassword', 'admin123');
     if (password === adminPassword) {
       return { success: true, role: 'admin', user: { name: 'Admin Supervisor', id: 'admin' } };
@@ -250,7 +252,11 @@ function handleLogin(ss, username, password) {
   }
   
   const employees = readSheet(ss.getSheetByName('Employees'), HEADERS.Employees);
-  const emp = employees.find(e => String(e.id).toLowerCase() === username.toLowerCase() || String(e.name).toLowerCase() === username.toLowerCase());
+  const emp = employees.find(e => {
+    const sheetId = String(e.id || '').trim().toLowerCase();
+    const sheetName = String(e.name || '').trim().toLowerCase();
+    return sheetId === cleanUsername || sheetName === cleanUsername;
+  });
   if (!emp) return { success: false, error: 'User profile not found.' };
   if (password !== (emp.password || '123456')) return { success: false, error: 'Incorrect credentials.' };
   
@@ -268,11 +274,12 @@ function handleChangePassword(ss, payload) {
   
   const sheet = ss.getSheetByName('Employees');
   const employees = readSheet(sheet, HEADERS.Employees);
-  const emp = employees.find(e => String(e.id) === String(userId));
+  const cleanUserId = String(userId || '').trim().toLowerCase();
+  const emp = employees.find(e => String(e.id).trim().toLowerCase() === cleanUserId);
   if (!emp) return { success: false, error: 'Employee not found.' };
   if (currentPassword !== (emp.password || '123456')) return { success: false, error: 'Incorrect current password.' };
   
-  updateRow(sheet, HEADERS.Employees, userId, { password: newPassword });
+  updateRow(sheet, HEADERS.Employees, emp.id, { password: newPassword });
   return { success: true, employee: { ...emp, password: newPassword } };
 }
 

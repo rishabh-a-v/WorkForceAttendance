@@ -535,10 +535,11 @@ app.get('/api/audit-logs', async (_, res) => {
 // ════════════════════════════════════════════════════════════════════
 
 app.post('/api/auth/login', async (req, res) => {
-  const { username, password } = req.body;
+  const cleanUsername = (req.body.username || '').toString().trim().toLowerCase();
+  const { password } = req.body;
   const config = readJSON(FILES.config);
 
-  if (username.toLowerCase() === 'admin') {
+  if (cleanUsername === 'admin') {
     if (password === (config.adminPassword || 'admin123')) {
       await appendLog('Security Authentication', 'System Admin', null, null, 'Admin authenticated.', req);
       return res.json({ success: true, role: 'admin', user: { name: 'Admin Supervisor', id: 'admin' } });
@@ -550,10 +551,11 @@ app.post('/api/auth/login', async (req, res) => {
     ? await googleSheets.getEmployees() 
     : readJSON(FILES.employees);
 
-  const emp = employees.find(e =>
-    e.id.toLowerCase() === username.toLowerCase() ||
-    e.name.toLowerCase() === username.toLowerCase()
-  );
+  const emp = employees.find(e => {
+    const sheetId = (e.id || '').toString().trim().toLowerCase();
+    const sheetName = (e.name || '').toString().trim().toLowerCase();
+    return sheetId === cleanUsername || sheetName === cleanUsername;
+  });
 
   if (!emp) return res.status(404).json({ success: false, error: 'User profile not found.' });
   if (password !== (emp.password || '123456'))
@@ -576,21 +578,23 @@ app.put('/api/auth/password', async (req, res) => {
     return res.json({ success: true });
   }
 
+  const targetId = (userId || '').toString().trim().toLowerCase();
+
   if (googleSheets.isConfigured()) {
     const employees = await googleSheets.getEmployees();
-    const emp = employees.find(e => e.id === userId);
+    const emp = employees.find(e => e.id && e.id.toString().trim().toLowerCase() === targetId);
     if (!emp) return res.status(404).json({ success: false, error: 'Employee not found.' });
     if (currentPassword !== (emp.password || '123456'))
       return res.status(401).json({ success: false, error: 'Incorrect current password.' });
 
-    await googleSheets.updateEmployee(userId, { password: newPassword });
+    await googleSheets.updateEmployee(emp.id, { password: newPassword });
     await appendLog('Credentials Update', emp.name, null, null, `${emp.name} updated password.`, req);
     return res.json({ success: true, employee: { ...emp, password: newPassword } });
   }
 
   // Fallback JSON mode
   const employees = readJSON(FILES.employees);
-  const idx = employees.findIndex(e => e.id === userId);
+  const idx = employees.findIndex(e => e.id && e.id.toString().trim().toLowerCase() === targetId);
   if (idx === -1) return res.status(404).json({ success: false, error: 'Employee not found.' });
 
   const emp = employees[idx];
