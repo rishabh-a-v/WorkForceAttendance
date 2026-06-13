@@ -84,8 +84,14 @@ function doPost(e) {
 
 // Support simple GET requests for testing
 function doGet(e) {
-  return ContentService.createTextOutput(JSON.stringify({ ok: true, message: "Apps Script Web App is running. Send POST requests to communicate." }))
-    .setMimeType(ContentService.MimeType.JSON);
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    return ContentService.createTextOutput(JSON.stringify({ ok: true, message: "Apps Script Web App is running.", spreadsheetName: ss.getName() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (error) {
+    return ContentService.createTextOutput(JSON.stringify({ ok: false, error: error.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
 }
 
 function initSheets(ss) {
