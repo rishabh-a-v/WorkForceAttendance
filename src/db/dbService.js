@@ -156,6 +156,9 @@ const syncFromServer = async () => {
     ]);
     if (employees) {
       const processedEmployees = employees.map(emp => {
+        if (!emp.avatar) {
+          emp.avatar = (emp.registeredPhotos && emp.registeredPhotos.length > 0) ? emp.registeredPhotos[0] : AVATARS.UNKNOWN;
+        }
         if (!emp.samples) {
           emp.samples = (emp.registeredPhotos || [emp.avatar || AVATARS.UNKNOWN]).map((img, idx) => ({
             id: `SAMP_${emp.id}_${idx + 1}`,
