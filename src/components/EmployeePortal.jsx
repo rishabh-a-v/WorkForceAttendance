@@ -220,22 +220,35 @@ export default function EmployeePortal({ currentUser, onLogout }) {
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        setGpsData({
-          lat: latitude.toFixed(6),
-          lon: longitude.toFixed(6),
-          status: 'GPS Captured'
-        });
-        setGpsLoading(false);
-      },
-      (error) => {
+    const options = { enableHighAccuracy: true, timeout: 6000 };
+    
+    const successCallback = (position) => {
+      const { latitude, longitude } = position.coords;
+      setGpsData({
+        lat: latitude.toFixed(6),
+        lon: longitude.toFixed(6),
+        status: 'GPS Captured'
+      });
+      setGpsLoading(false);
+    };
+
+    const errorCallback = (error) => {
+      if (options.enableHighAccuracy) {
+        console.warn('High accuracy geolocation failed, trying low accuracy...');
+        options.enableHighAccuracy = false;
+        options.timeout = 10000;
+        navigator.geolocation.getCurrentPosition(successCallback, (err2) => {
+          console.error('Low accuracy geolocation also failed:', err2);
+          setGpsData({ lat: null, lon: null, status: 'GPS Unavailable' });
+          setGpsLoading(false);
+        }, options);
+      } else {
         setGpsData({ lat: null, lon: null, status: 'GPS Unavailable' });
         setGpsLoading(false);
-      },
-      { enableHighAccuracy: true, timeout: 8000 }
-    );
+      }
+    };
+
+    navigator.geolocation.getCurrentPosition(successCallback, errorCallback, options);
   };
 
   const handleStartCamera = async (currentFacingMode = facingMode) => {

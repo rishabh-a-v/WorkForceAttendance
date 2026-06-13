@@ -124,30 +124,36 @@ export default function AttendanceScanner() {
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude, accuracy } = position.coords;
-        
-        setGpsData({
-          lat: latitude.toFixed(6),
-          lon: longitude.toFixed(6),
-          accuracy: Math.round(accuracy),
-          status: 'GPS Captured'
-        });
+    const options = { enableHighAccuracy: true, timeout: 6000 };
+    
+    const successCallback = (position) => {
+      const { latitude, longitude, accuracy } = position.coords;
+      setGpsData({
+        lat: latitude.toFixed(6),
+        lon: longitude.toFixed(6),
+        accuracy: Math.round(accuracy || 0),
+        status: 'GPS Captured'
+      });
+      setGpsLoading(false);
+    };
+
+    const errorCallback = (error) => {
+      if (options.enableHighAccuracy) {
+        console.warn('High accuracy geolocation failed, trying low accuracy...');
+        options.enableHighAccuracy = false;
+        options.timeout = 10000;
+        navigator.geolocation.getCurrentPosition(successCallback, (err2) => {
+          console.error('Low accuracy geolocation also failed:', err2);
+          setGpsData({ lat: null, lon: null, accuracy: 0, status: 'GPS Unavailable' });
+          setGpsLoading(false);
+        }, options);
+      } else {
+        setGpsData({ lat: null, lon: null, accuracy: 0, status: 'GPS Unavailable' });
         setGpsLoading(false);
-      },
-      (error) => {
-        console.error('Geolocation error:', error);
-        setGpsData({
-          lat: null,
-          lon: null,
-          accuracy: 0,
-          status: 'GPS Unavailable'
-        });
-        setGpsLoading(false);
-      },
-      { enableHighAccuracy: true, timeout: 8000 }
-    );
+      }
+    };
+
+    navigator.geolocation.getCurrentPosition(successCallback, errorCallback, options);
   };
 
 
