@@ -15,84 +15,103 @@ function setup() {
   Logger.log("Setup completed. All required sheets created successfully.");
 }
 
-function doPost(e) {
-  try {
-    const payload = JSON.parse(e.postData.contents);
-    const action = payload.action;
-    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    
-    let result = null;
+// Core action handler — shared by both doGet and doPost
+function processAction(payload) {
+  const action = payload.action;
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let result = null;
 
-    switch (action) {
-      case 'getEmployees':
-        result = readSheet(ss.getSheetByName('Employees'), HEADERS.Employees);
-        break;
-      case 'saveEmployee':
-        result = saveRow(ss.getSheetByName('Employees'), HEADERS.Employees, payload);
-        break;
-      case 'updateEmployee':
-        result = updateRow(ss.getSheetByName('Employees'), HEADERS.Employees, payload.id, payload);
-        break;
-      case 'deleteEmployee':
-        result = deleteRow(ss.getSheetByName('Employees'), payload.id);
-        break;
-      case 'getAttendance':
-        result = readSheet(ss.getSheetByName('Attendance'), HEADERS.Attendance);
-        break;
-      case 'saveAttendance':
-        result = saveRow(ss.getSheetByName('Attendance'), HEADERS.Attendance, payload);
-        break;
-      case 'updateAttendance':
-        result = updateRow(ss.getSheetByName('Attendance'), HEADERS.Attendance, payload.id, payload);
-        break;
-      case 'deleteAttendance':
-        result = deleteRow(ss.getSheetByName('Attendance'), payload.id);
-        break;
-      case 'savePhotos':
-        result = saveRow(ss.getSheetByName('Photos') || createPhotosSheet(ss), ['id', 'attendanceId', 'originalPhoto', 'croppedFace', 'timestamp'], payload);
-        break;
-      case 'getPhotos':
-        result = readSheet(ss.getSheetByName('Photos') || createPhotosSheet(ss), ['id', 'attendanceId', 'originalPhoto', 'croppedFace', 'timestamp']);
-        break;
-      case 'getAuditLogs':
-        result = readSheet(ss.getSheetByName('AuditLogs'), HEADERS.AuditLogs);
-        break;
-      case 'saveAuditLog':
-        result = saveRow(ss.getSheetByName('AuditLogs'), HEADERS.AuditLogs, payload);
-        break;
-      case 'getWorksite':
-        result = getConfig(ss, 'worksite', { latitude: 12.9716, longitude: 77.5946, radiusMeters: 250 });
-        break;
-      case 'updateWorksite':
-        result = setConfig(ss, 'worksite', payload);
-        break;
-      case 'login':
-        result = handleLogin(ss, payload.username, payload.password);
-        break;
-      case 'changePassword':
-        result = handleChangePassword(ss, payload);
-        break;
-      default:
-        throw new Error('Unknown action: ' + action);
+  switch (action) {
+    case 'getEmployees':
+      result = readSheet(ss.getSheetByName('Employees'), HEADERS.Employees);
+      break;
+    case 'saveEmployee':
+      result = saveRow(ss.getSheetByName('Employees'), HEADERS.Employees, payload);
+      break;
+    case 'updateEmployee':
+      result = updateRow(ss.getSheetByName('Employees'), HEADERS.Employees, payload.id, payload);
+      break;
+    case 'deleteEmployee':
+      result = deleteRow(ss.getSheetByName('Employees'), payload.id);
+      break;
+    case 'getAttendance':
+      result = readSheet(ss.getSheetByName('Attendance'), HEADERS.Attendance);
+      break;
+    case 'saveAttendance':
+      result = saveRow(ss.getSheetByName('Attendance'), HEADERS.Attendance, payload);
+      break;
+    case 'updateAttendance':
+      result = updateRow(ss.getSheetByName('Attendance'), HEADERS.Attendance, payload.id, payload);
+      break;
+    case 'deleteAttendance':
+      result = deleteRow(ss.getSheetByName('Attendance'), payload.id);
+      break;
+    case 'savePhotos':
+      result = saveRow(ss.getSheetByName('Photos') || createPhotosSheet(ss), ['id', 'attendanceId', 'originalPhoto', 'croppedFace', 'timestamp'], payload);
+      break;
+    case 'getPhotos':
+      result = readSheet(ss.getSheetByName('Photos') || createPhotosSheet(ss), ['id', 'attendanceId', 'originalPhoto', 'croppedFace', 'timestamp']);
+      break;
+    case 'getAuditLogs':
+      result = readSheet(ss.getSheetByName('AuditLogs'), HEADERS.AuditLogs);
+      break;
+    case 'saveAuditLog':
+      result = saveRow(ss.getSheetByName('AuditLogs'), HEADERS.AuditLogs, payload);
+      break;
+    case 'getWorksite':
+      result = getConfig(ss, 'worksite', { latitude: 12.9716, longitude: 77.5946, radiusMeters: 250 });
+      break;
+    case 'updateWorksite':
+      result = setConfig(ss, 'worksite', payload);
+      break;
+    case 'login':
+      result = handleLogin(ss, payload.username, payload.password);
+      break;
+    case 'changePassword':
+      result = handleChangePassword(ss, payload);
+      break;
+    default:
+      throw new Error('Unknown action: ' + action);
+  }
+
+  return ContentService.createTextOutput(JSON.stringify(result || { success: true }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// PRIMARY entry point — all frontend calls use GET to bypass the broken POST redirect chain.
+// Usage: ?action=login&data={"username":"admin","password":"admin123"}
+function doGet(e) {
+  try {
+    const action = (e.parameter || {}).action;
+
+    // If no action parameter, return a health-check response
+    if (!action) {
+      const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+      return ContentService.createTextOutput(JSON.stringify({ ok: true, message: "Apps Script Web App is running.", spreadsheetName: ss.getName() }))
+        .setMimeType(ContentService.MimeType.JSON);
     }
 
-    return ContentService.createTextOutput(JSON.stringify(result || { success: true }))
-      .setMimeType(ContentService.MimeType.JSON);
+    // Parse optional data parameter (JSON-encoded payload)
+    let payload = {};
+    if (e.parameter.data) {
+      payload = JSON.parse(e.parameter.data);
+    }
+    payload.action = action;
 
+    return processAction(payload);
   } catch (error) {
     return ContentService.createTextOutput(JSON.stringify({ success: false, error: error.message }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 }
 
-// Support simple GET requests for testing
-function doGet(e) {
+// Fallback POST handler — kept for compatibility but POST redirects may fail on Google's infra
+function doPost(e) {
   try {
-    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    return ContentService.createTextOutput(JSON.stringify({ ok: true, message: "Apps Script Web App is running.", spreadsheetName: ss.getName() }))
-      .setMimeType(ContentService.MimeType.JSON);
+    const payload = JSON.parse(e.postData.contents);
+    return processAction(payload);
   } catch (error) {
-    return ContentService.createTextOutput(JSON.stringify({ ok: false, error: error.message }))
+    return ContentService.createTextOutput(JSON.stringify({ success: false, error: error.message }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 }
