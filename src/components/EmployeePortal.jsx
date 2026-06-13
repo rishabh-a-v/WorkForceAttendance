@@ -215,10 +215,64 @@ export default function EmployeePortal({ currentUser, onLogout }) {
     setGpsData(null);
     setErrorMsg('');
 
+    const fetchIpLocationFallback = (originalError) => {
+      console.warn('Attempting IP Geolocation fallback due to browser GPS failure:', originalError);
+      
+      // Try freeipapi.com first
+      fetch('https://freeipapi.com/api/json')
+        .then(res => {
+          if (!res.ok) throw new Error('freeipapi HTTP error');
+          return res.json();
+        })
+        .then(data => {
+          if (data.latitude !== undefined && data.longitude !== undefined) {
+            setGpsData({
+              lat: parseFloat(data.latitude).toFixed(6),
+              lon: parseFloat(data.longitude).toFixed(6),
+              status: 'GPS Captured (IP)'
+            });
+            setGpsLoading(false);
+          } else {
+            throw new Error('Invalid coordinates format from freeipapi');
+          }
+        })
+        .catch(err => {
+          console.warn('freeipapi failed, trying ipinfo...', err);
+          // Try ipinfo.io as secondary fallback
+          fetch('https://ipinfo.io/json')
+            .then(res => {
+              if (!res.ok) throw new Error('ipinfo HTTP error');
+              return res.json();
+            })
+            .then(data => {
+              if (data.loc) {
+                const [lat, lon] = data.loc.split(',');
+                setGpsData({
+                  lat: parseFloat(lat).toFixed(6),
+                  lon: parseFloat(lon).toFixed(6),
+                  status: 'GPS Captured (IP)'
+                });
+                setGpsLoading(false);
+              } else {
+                throw new Error('Invalid coordinates format from ipinfo');
+              }
+            })
+            .catch(finalErr => {
+              console.error('All geolocation fallbacks failed:', finalErr);
+              setGpsData({ lat: null, lon: null, status: `GPS Error: ${originalError || 'Not supported/blocked'}` });
+              setErrorMsg(`GPS Error: ${originalError || 'Not supported/blocked'}. IP Fallback failed: ${finalErr.message}`);
+              setGpsLoading(false);
+            });
+        });
+    };
+
+    if (window.location.protocol === 'http:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      fetchIpLocationFallback('Insecure HTTP context prevents browser Geolocation API');
+      return;
+    }
+
     if (!navigator.geolocation) {
-      setGpsData({ lat: null, lon: null, status: 'GPS Unavailable' });
-      setErrorMsg('GPS Error: Geolocation is not supported by your browser or requires a secure HTTPS connection.');
-      setGpsLoading(false);
+      fetchIpLocationFallback('Geolocation API not supported by browser');
       return;
     }
 
@@ -240,15 +294,10 @@ export default function EmployeePortal({ currentUser, onLogout }) {
         options.enableHighAccuracy = false;
         options.timeout = 10000;
         navigator.geolocation.getCurrentPosition(successCallback, (err2) => {
-          console.error('Low accuracy geolocation also failed:', err2);
-          setGpsData({ lat: null, lon: null, status: `GPS Error: ${err2.message}` });
-          setErrorMsg(`GPS Error: ${err2.message} (Code ${err2.code}). Please verify device location services are enabled.`);
-          setGpsLoading(false);
+          fetchIpLocationFallback(`Browser GPS failed: ${err2.message} (Code ${err2.code})`);
         }, options);
       } else {
-        setGpsData({ lat: null, lon: null, status: `GPS Error: ${error.message}` });
-        setErrorMsg(`GPS Error: ${error.message} (Code ${error.code}). Please verify device location services are enabled.`);
-        setGpsLoading(false);
+        fetchIpLocationFallback(`Browser GPS failed: ${error.message} (Code ${error.code})`);
       }
     };
 
@@ -846,7 +895,7 @@ export default function EmployeePortal({ currentUser, onLogout }) {
               <div className={`p-2.5 rounded-xl border ${
                 gpsLoading 
                   ? 'bg-brand-500/10 border-brand-500/20 text-brand-400'
-                  : gpsData?.status === 'GPS Captured'
+                  : gpsData?.status?.startsWith('GPS Captured')
                     ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                     : 'bg-dark-800/40 border-dark-800/60 text-dark-400'
               }`}>
@@ -860,7 +909,7 @@ export default function EmployeePortal({ currentUser, onLogout }) {
                   </p>
                 ) : gpsData ? (
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5 text-xs">
-                    <span className={`font-extrabold ${gpsData.status === 'GPS Captured' ? 'text-emerald-400' : 'text-rose-450'}`}>
+                    <span className={`font-extrabold ${gpsData.status?.startsWith('GPS Captured') ? 'text-emerald-400' : 'text-rose-450'}`}>
                       {gpsData.status}
                     </span>
                     {gpsData.lat && (

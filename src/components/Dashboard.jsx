@@ -153,7 +153,8 @@ export default function Dashboard() {
       
     const matchesLocation = 
       selectedLocation === 'All' || 
-      record.attendanceStatus === selectedLocation;
+      record.attendanceStatus === selectedLocation ||
+      (selectedLocation === 'GPS Captured' && record.attendanceStatus?.startsWith('GPS Captured'));
 
     return matchesSearch && matchesDept && matchesStatus && matchesLocation;
   });
@@ -538,7 +539,7 @@ export default function Dashboard() {
                     <td className="p-4 whitespace-nowrap">
                       <div className="flex flex-col space-y-1">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border w-max ${
-                          record.attendanceStatus === 'Valid Location' || record.attendanceStatus === 'GPS Captured'
+                          record.attendanceStatus === 'Valid Location' || record.attendanceStatus?.startsWith('GPS Captured')
                             ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                             : record.attendanceStatus === 'Invalid Location'
                               ? 'bg-rose-500/10 border-rose-500/20 text-rose-400 animate-pulse'

@@ -113,15 +113,66 @@ export default function AttendanceScanner() {
     setGpsData(null);
     setErrorMsg('');
 
+    const fetchIpLocationFallback = (originalError) => {
+      console.warn('Attempting IP Geolocation fallback due to browser GPS failure:', originalError);
+      
+      // Try freeipapi.com first
+      fetch('https://freeipapi.com/api/json')
+        .then(res => {
+          if (!res.ok) throw new Error('freeipapi HTTP error');
+          return res.json();
+        })
+        .then(data => {
+          if (data.latitude !== undefined && data.longitude !== undefined) {
+            setGpsData({
+              lat: parseFloat(data.latitude).toFixed(6),
+              lon: parseFloat(data.longitude).toFixed(6),
+              accuracy: 5000,
+              status: 'GPS Captured (IP)'
+            });
+            setGpsLoading(false);
+          } else {
+            throw new Error('Invalid coordinates format from freeipapi');
+          }
+        })
+        .catch(err => {
+          console.warn('freeipapi failed, trying ipinfo...', err);
+          // Try ipinfo.io as secondary fallback
+          fetch('https://ipinfo.io/json')
+            .then(res => {
+              if (!res.ok) throw new Error('ipinfo HTTP error');
+              return res.json();
+            })
+            .then(data => {
+              if (data.loc) {
+                const [lat, lon] = data.loc.split(',');
+                setGpsData({
+                  lat: parseFloat(lat).toFixed(6),
+                  lon: parseFloat(lon).toFixed(6),
+                  accuracy: 5000,
+                  status: 'GPS Captured (IP)'
+                });
+                setGpsLoading(false);
+              } else {
+                throw new Error('Invalid coordinates format from ipinfo');
+              }
+            })
+            .catch(finalErr => {
+              console.error('All geolocation fallbacks failed:', finalErr);
+              setGpsData({ lat: null, lon: null, accuracy: 0, status: 'GPS Unavailable' });
+              setErrorMsg(`GPS Error: ${originalError || 'Not supported/blocked'}. IP Fallback failed: ${finalErr.message}`);
+              setGpsLoading(false);
+            });
+        });
+    };
+
+    if (window.location.protocol === 'http:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      fetchIpLocationFallback('Insecure HTTP context prevents browser Geolocation API');
+      return;
+    }
+
     if (!navigator.geolocation) {
-      setGpsData({
-        lat: null,
-        lon: null,
-        accuracy: 0,
-        status: 'GPS Unavailable'
-      });
-      setErrorMsg('GPS Error: Geolocation is not supported by your browser or requires a secure HTTPS connection.');
-      setGpsLoading(false);
+      fetchIpLocationFallback('Geolocation API not supported by browser');
       return;
     }
 
@@ -144,15 +195,10 @@ export default function AttendanceScanner() {
         options.enableHighAccuracy = false;
         options.timeout = 10000;
         navigator.geolocation.getCurrentPosition(successCallback, (err2) => {
-          console.error('Low accuracy geolocation also failed:', err2);
-          setGpsData({ lat: null, lon: null, accuracy: 0, status: 'GPS Unavailable' });
-          setErrorMsg(`GPS Error: ${err2.message} (Code ${err2.code}). Please verify device location services are enabled.`);
-          setGpsLoading(false);
+          fetchIpLocationFallback(`Browser GPS failed: ${err2.message} (Code ${err2.code})`);
         }, options);
       } else {
-        setGpsData({ lat: null, lon: null, accuracy: 0, status: 'GPS Unavailable' });
-        setErrorMsg(`GPS Error: ${error.message} (Code ${error.code}). Please verify device location services are enabled.`);
-        setGpsLoading(false);
+        fetchIpLocationFallback(`Browser GPS failed: ${error.message} (Code ${error.code})`);
       }
     };
 
@@ -783,7 +829,7 @@ export default function AttendanceScanner() {
                 </p>
               ) : gpsData ? (
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-xs">
-                  <span className={`font-extrabold ${gpsData.status === 'GPS Captured' ? 'text-emerald-400' : 'text-rose-455'}`}>
+                  <span className={`font-extrabold ${gpsData.status?.startsWith('GPS Captured') ? 'text-emerald-400' : 'text-rose-455'}`}>
                     {gpsData.status}
                   </span>
                   {gpsData.lat && (
