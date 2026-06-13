@@ -9,15 +9,18 @@ const HEADERS = {
   Config: ['key', 'value']
 };
 
+function setup() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  initSheets(ss);
+  Logger.log("Setup completed. All required sheets created successfully.");
+}
+
 function doPost(e) {
   try {
     const payload = JSON.parse(e.postData.contents);
     const action = payload.action;
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     
-    // Auto-create sheets if they don't exist
-    initSheets(ss);
-
     let result = null;
 
     switch (action) {
