@@ -510,10 +510,33 @@ export const dbService = {
   authenticate: (username, password) => {
     const cleanUsername = (username || '').toString().trim().toLowerCase();
     
-    // 1. Check admin credentials
+    // 1. Check employee credentials (including admin if present in cache)
+    const employees = get(KEYS.EMPLOYEES);
+    const emp = employees.find(e => {
+      const sheetId = (e.id || '').toString().trim().toLowerCase();
+      const sheetName = (e.name || '').toString().trim().toLowerCase();
+      return sheetId === cleanUsername || sheetName === cleanUsername;
+    });
+
+    if (emp) {
+      if (String(password) === String(emp.password || '123456')) {
+        dbService.logAction(
+          'Security Authentication',
+          emp.name,
+          null,
+          null,
+          `${emp.role === 'admin' ? 'Admin' : 'Employee'} ${emp.name} (${emp.id}) authenticated successfully.`
+        );
+        return { success: true, role: emp.role || 'employee', user: emp };
+      } else {
+        return { success: false, error: emp.role === 'admin' ? 'Invalid admin password.' : 'Incorrect credentials password.' };
+      }
+    }
+
+    // Fallback for hardcoded admin if not synced yet
     if (cleanUsername === 'admin') {
       const superPwd = localStorage.getItem('wf_supervisor_password') || 'admin123';
-      if (password === superPwd) {
+      if (String(password) === String(superPwd)) {
         dbService.logAction(
           'Security Authentication',
           'System Admin',
@@ -521,46 +544,31 @@ export const dbService = {
           null,
           'Admin authenticated successfully.'
         );
-        return { success: true, role: 'admin', user: { name: 'Admin Supervisor', id: 'admin' } };
+        return { success: true, role: 'admin', user: { name: 'Admin Supervisor', id: 'admin', role: 'admin' } };
       } else {
         return { success: false, error: 'Invalid admin password.' };
       }
     }
 
-    // 2. Check employee credentials
-    const employees = get(KEYS.EMPLOYEES);
-    const emp = employees.find(e => {
-      const sheetId = (e.id || '').toString().trim().toLowerCase();
-      const sheetName = (e.name || '').toString().trim().toLowerCase();
-      return sheetId === cleanUsername || sheetName === cleanUsername;
-    });
-    
-    if (!emp) {
-      return { success: false, error: 'User profile not found in system directory.' };
-    }
-
-    if (String(password) === String(emp.password || '123456')) {
-      dbService.logAction(
-        'Security Authentication',
-        emp.name,
-        null,
-        null,
-        `Employee ${emp.name} (${emp.id}) authenticated successfully.`
-      );
-      // Return the employee's own role (employee or supervisor)
-      return { success: true, role: emp.role || 'employee', user: emp };
-    }
-
-    return { success: false, error: 'Incorrect credentials password.' };
+    return { success: false, error: 'User profile not found in system directory.' };
   },
 
   changePassword: (userId, currentPassword, newPassword, isAdmin) => {
     if (isAdmin) {
       const superPwd = localStorage.getItem('wf_supervisor_password') || 'admin123';
-      if (currentPassword !== superPwd) {
+      if (String(currentPassword) !== String(superPwd)) {
         return { success: false, error: 'Incorrect current password.' };
       }
       localStorage.setItem('wf_supervisor_password', newPassword);
+      
+      // Also update the Admin row in the cached employees list if present
+      const employees = get(KEYS.EMPLOYEES);
+      const idx = employees.findIndex(e => e.id === 'admin');
+      if (idx !== -1) {
+        employees[idx].password = newPassword;
+        set(KEYS.EMPLOYEES, employees);
+      }
+      
       dbService.logAction(
         'Credentials Update',
         'System Admin',

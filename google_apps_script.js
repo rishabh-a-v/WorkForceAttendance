@@ -134,6 +134,32 @@ function initSheets(ss) {
       }
     }
   }
+
+  // Ensure default Admin profile exists in the Employees sheet
+  const empSheet = ss.getSheetByName('Employees');
+  const lastRow = empSheet.getLastRow();
+  let adminExists = false;
+  if (lastRow >= 2) {
+    const ids = empSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    adminExists = ids.some(r => String(r[0]).trim().toLowerCase() === 'admin');
+  }
+
+  if (!adminExists) {
+    const adminPassword = String(getConfig(ss, 'adminPassword', 'admin123'));
+    const adminRow = {
+      id: 'admin',
+      name: 'Admin Supervisor',
+      designation: 'System Admin',
+      department: 'Management',
+      mobile: '—',
+      role: 'admin',
+      password: adminPassword,
+      registeredPhotos: [],
+      biometrics: { vector: new Array(512).fill(0) }
+    };
+    saveRow(empSheet, HEADERS.Employees, adminRow);
+    Logger.log("Created default Admin row in Employees sheet.");
+  }
 }
 
 function createPhotosSheet(ss) {
@@ -261,8 +287,20 @@ function handleLogin(ss, username, password) {
   if (cleanUsername === 'admin') {
     const adminPassword = String(getConfig(ss, 'adminPassword', 'admin123'));
     if (String(password) === adminPassword) {
-      return { success: true, role: 'admin', user: { name: 'Admin Supervisor', id: 'admin' } };
+      const employees = readSheet(ss.getSheetByName('Employees'), HEADERS.Employees);
+      const emp = employees.find(e => String(e.id).trim().toLowerCase() === 'admin');
+      if (emp) {
+        return { success: true, role: 'admin', user: emp };
+      }
+      return { success: true, role: 'admin', user: { name: 'Admin Supervisor', id: 'admin', role: 'admin' } };
     }
+
+    const employees = readSheet(ss.getSheetByName('Employees'), HEADERS.Employees);
+    const emp = employees.find(e => String(e.id).trim().toLowerCase() === 'admin');
+    if (emp && String(password) === String(emp.password || 'admin123')) {
+      return { success: true, role: 'admin', user: emp };
+    }
+
     return { success: false, error: 'Invalid admin password.' };
   }
   
@@ -284,6 +322,10 @@ function handleChangePassword(ss, payload) {
     const adminPassword = String(getConfig(ss, 'adminPassword', 'admin123'));
     if (String(currentPassword) !== adminPassword) return { success: false, error: 'Incorrect current password.' };
     setConfig(ss, 'adminPassword', newPassword);
+    
+    // Also update Admin row in Employees sheet if present
+    const sheet = ss.getSheetByName('Employees');
+    updateRow(sheet, HEADERS.Employees, 'admin', { password: newPassword });
     return { success: true };
   }
   
