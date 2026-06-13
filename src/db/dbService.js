@@ -51,13 +51,261 @@ export const updateWorksiteCoords = (lat, lon) => {
 // server. localStorage is still used as the immediate cache so all existing
 // synchronous calls continue to work without any changes elsewhere.
 
+const BACKEND_PROVIDER = import.meta.env.VITE_BACKEND_PROVIDER || 'google-sheets';
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+
 const API_BASE = import.meta.env.VITE_API_URL === 'disabled'
   ? ''
   : (import.meta.env.VITE_API_URL || (typeof window !== 'undefined' ? window.location.origin : ''));
 
 const apiCall = async (method, path, body) => {
-  if (!API_BASE || API_BASE === 'disabled') return null;
+  if (BACKEND_PROVIDER === 'disabled') return null;
   try {
+    // -------------------------------------------------------------
+    // SUPABASE PROVIDER
+    // -------------------------------------------------------------
+    if (BACKEND_PROVIDER === 'supabase') {
+      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+        console.warn('[dbService] Supabase config credentials missing.');
+        return null;
+      }
+
+      const headers = {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json'
+      };
+
+      const sbFetch = async (urlPath, opts = {}) => {
+        const url = `${SUPABASE_URL}/rest/v1${urlPath}`;
+        const res = await fetch(url, {
+          headers,
+          ...opts
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`Supabase Error: ${res.statusText} - ${errText}`);
+        }
+        if (opts.method === 'PATCH' || opts.method === 'DELETE') {
+          return { success: true };
+        }
+        const text = await res.text();
+        return text ? JSON.parse(text) : { success: true };
+      };
+
+      // 1. Auth Login Handler
+      if (path === '/api/auth/login' && method === 'POST') {
+        const { username, password } = body;
+        const cleanUsername = String(username || '').trim().toLowerCase();
+
+        if (cleanUsername === 'admin') {
+          const configRes = await sbFetch('/config?key=eq.adminPassword&select=value');
+          const adminPassword = configRes.length > 0 ? configRes[0].value : 'admin123';
+          if (password === adminPassword) {
+            return { success: true, role: 'admin', user: { name: 'Admin Supervisor', id: 'admin' } };
+          }
+          return { success: false, error: 'Invalid admin password.' };
+        }
+
+        const employees = await sbFetch(`/employees?or=(id.ilike.${cleanUsername},name.ilike.${cleanUsername})&select=*`);
+        if (employees.length === 0) {
+          return { success: false, error: 'User profile not found.' };
+        }
+        const emp = employees[0];
+        if (String(password) !== String(emp.password || '123456')) {
+          return { success: false, error: 'Incorrect credentials.' };
+        }
+        return { success: true, role: emp.role || 'employee', user: emp };
+      }
+
+      // 2. Auth Change Password Handler
+      if (path === '/api/auth/password' && method === 'PUT') {
+        const { userId, currentPassword, newPassword, isAdmin } = body;
+        if (isAdmin) {
+          const configRes = await sbFetch('/config?key=eq.adminPassword&select=value');
+          const adminPassword = configRes.length > 0 ? configRes[0].value : 'admin123';
+          if (currentPassword !== adminPassword) {
+            return { success: false, error: 'Incorrect current password.' };
+          }
+          
+          const checkRes = await sbFetch('/config?key=eq.adminPassword&select=key');
+          if (checkRes.length > 0) {
+            await sbFetch('/config?key=eq.adminPassword', {
+              method: 'PATCH',
+              body: JSON.stringify({ value: newPassword })
+            });
+          } else {
+            await sbFetch('/config', {
+              method: 'POST',
+              body: JSON.stringify({ key: 'adminPassword', value: newPassword })
+            });
+          }
+          return { success: true };
+        }
+
+        const employees = await sbFetch(`/employees?id=eq.${userId}&select=*`);
+        if (employees.length === 0) return { success: false, error: 'Employee not found.' };
+        const emp = employees[0];
+        if (String(currentPassword) !== String(emp.password || '123456')) {
+          return { success: false, error: 'Incorrect current password.' };
+        }
+        await sbFetch(`/employees?id=eq.${userId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ password: newPassword })
+        });
+        return { success: true };
+      }
+
+      // 3. Config / Worksite Handler
+      if (path === '/api/config/worksite') {
+        if (method === 'GET') {
+          const configRes = await sbFetch('/config?key=eq.worksite&select=value');
+          if (configRes.length > 0) {
+            return JSON.parse(configRes[0].value);
+          }
+          return { latitude: 12.9716, longitude: 77.5946, radiusMeters: 250 };
+        }
+        if (method === 'PUT') {
+          const configRes = await sbFetch('/config?key=eq.worksite&select=key');
+          if (configRes.length > 0) {
+            await sbFetch('/config?key=eq.worksite', {
+              method: 'PATCH',
+              body: JSON.stringify({ value: JSON.stringify(body) })
+            });
+          } else {
+            await sbFetch('/config', {
+              method: 'POST',
+              body: JSON.stringify({ key: 'worksite', value: JSON.stringify(body) })
+            });
+          }
+          return { success: true };
+        }
+      }
+
+      // 4. Employees CRUD
+      if (path === '/api/employees') {
+        if (method === 'GET') {
+          return await sbFetch('/employees?select=*');
+        }
+        if (method === 'POST') {
+          await sbFetch('/employees', {
+            method: 'POST',
+            body: JSON.stringify(body)
+          });
+          return { success: true };
+        }
+      }
+      if (path.startsWith('/api/employees/')) {
+        const empId = path.split('/')[3];
+        if (path.endsWith('/samples')) {
+          const employees = JSON.parse(localStorage.getItem('wf_employees') || '[]');
+          const emp = employees.find(e => e.id === empId);
+          if (emp) {
+            await sbFetch(`/employees?id=eq.${empId}`, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                biometrics: emp.biometrics,
+                registeredPhotos: emp.registeredPhotos
+              })
+            });
+          }
+          return { success: true };
+        }
+        if (path.includes('/samples/')) {
+          const employees = JSON.parse(localStorage.getItem('wf_employees') || '[]');
+          const emp = employees.find(e => e.id === empId);
+          if (emp) {
+            await sbFetch(`/employees?id=eq.${empId}`, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                biometrics: emp.biometrics,
+                registeredPhotos: emp.registeredPhotos
+              })
+            });
+          }
+          return { success: true };
+        }
+        if (method === 'PUT') {
+          await sbFetch(`/employees?id=eq.${empId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(body)
+          });
+          return { success: true };
+        }
+        if (method === 'DELETE') {
+          await sbFetch(`/employees?id=eq.${empId}`, {
+            method: 'DELETE'
+          });
+          return { success: true };
+        }
+      }
+
+      // 5. Attendance CRUD
+      if (path === '/api/attendance') {
+        if (method === 'GET') {
+          return await sbFetch('/attendance?select=*');
+        }
+        if (method === 'POST') {
+          await sbFetch('/attendance', {
+            method: 'POST',
+            body: JSON.stringify(body)
+          });
+          return { success: true };
+        }
+      }
+      if (path.startsWith('/api/attendance/')) {
+        const attId = path.split('/').pop();
+        if (method === 'PUT') {
+          await sbFetch(`/attendance?id=eq.${attId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(body)
+          });
+          return { success: true };
+        }
+        if (method === 'DELETE') {
+          await sbFetch(`/attendance?id=eq.${attId}`, {
+            method: 'DELETE'
+          });
+          return { success: true };
+        }
+      }
+
+      // 6. Photos CRUD
+      if (path === '/api/photos') {
+        if (method === 'GET') {
+          return await sbFetch('/photos?select=*');
+        }
+        if (method === 'POST') {
+          await sbFetch('/photos', {
+            method: 'POST',
+            body: JSON.stringify(body)
+          });
+          return { success: true };
+        }
+      }
+
+      // 7. AuditLogs CRUD
+      if (path === '/api/audit-logs') {
+        if (method === 'GET') {
+          return await sbFetch('/auditlogs?select=*');
+        }
+        if (method === 'POST') {
+          await sbFetch('/auditlogs', {
+            method: 'POST',
+            body: JSON.stringify(body)
+          });
+          return { success: true };
+        }
+      }
+
+      return null;
+    }
+
+    // -------------------------------------------------------------
+    // GOOGLE SHEETS / LOCAL BACKEND PROVIDER (DEFAULT)
+    // -------------------------------------------------------------
+    if (!API_BASE || API_BASE === 'disabled') return null;
     const isAppsScript = API_BASE.includes('script.google.com');
 
     if (isAppsScript) {
