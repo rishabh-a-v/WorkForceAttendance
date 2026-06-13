@@ -112,6 +112,8 @@ const apiCall = async (method, path, body) => {
         action = 'savePhotos';
       } else if (path === '/api/audit-logs' && method === 'GET') {
         action = 'getAuditLogs';
+      } else if (path === '/api/audit-logs' && method === 'POST') {
+        action = 'saveAuditLog';
       } else if (path === '/api/config/worksite' && method === 'GET') {
         action = 'getWorksite';
       } else if (path === '/api/config/worksite' && method === 'PUT') {
@@ -510,33 +512,10 @@ export const dbService = {
   authenticate: (username, password) => {
     const cleanUsername = (username || '').toString().trim().toLowerCase();
     
-    // 1. Check employee credentials (including admin if present in cache)
-    const employees = get(KEYS.EMPLOYEES);
-    const emp = employees.find(e => {
-      const sheetId = (e.id || '').toString().trim().toLowerCase();
-      const sheetName = (e.name || '').toString().trim().toLowerCase();
-      return sheetId === cleanUsername || sheetName === cleanUsername;
-    });
-
-    if (emp) {
-      if (String(password) === String(emp.password || '123456')) {
-        dbService.logAction(
-          'Security Authentication',
-          emp.name,
-          null,
-          null,
-          `${emp.role === 'admin' ? 'Admin' : 'Employee'} ${emp.name} (${emp.id}) authenticated successfully.`
-        );
-        return { success: true, role: emp.role || 'employee', user: emp };
-      } else {
-        return { success: false, error: emp.role === 'admin' ? 'Invalid admin password.' : 'Incorrect credentials password.' };
-      }
-    }
-
-    // Fallback for hardcoded admin if not synced yet
+    // 1. Check admin credentials
     if (cleanUsername === 'admin') {
       const superPwd = localStorage.getItem('wf_supervisor_password') || 'admin123';
-      if (String(password) === String(superPwd)) {
+      if (password === superPwd) {
         dbService.logAction(
           'Security Authentication',
           'System Admin',
@@ -544,31 +523,46 @@ export const dbService = {
           null,
           'Admin authenticated successfully.'
         );
-        return { success: true, role: 'admin', user: { name: 'Admin Supervisor', id: 'admin', role: 'admin' } };
+        return { success: true, role: 'admin', user: { name: 'Admin Supervisor', id: 'admin' } };
       } else {
         return { success: false, error: 'Invalid admin password.' };
       }
     }
 
-    return { success: false, error: 'User profile not found in system directory.' };
+    // 2. Check employee credentials
+    const employees = get(KEYS.EMPLOYEES);
+    const emp = employees.find(e => {
+      const sheetId = (e.id || '').toString().trim().toLowerCase();
+      const sheetName = (e.name || '').toString().trim().toLowerCase();
+      return sheetId === cleanUsername || sheetName === cleanUsername;
+    });
+    
+    if (!emp) {
+      return { success: false, error: 'User profile not found in system directory.' };
+    }
+
+    if (String(password) === String(emp.password || '123456')) {
+      dbService.logAction(
+        'Security Authentication',
+        emp.name,
+        null,
+        null,
+        `Employee ${emp.name} (${emp.id}) authenticated successfully.`
+      );
+      // Return the employee's own role (employee or supervisor)
+      return { success: true, role: emp.role || 'employee', user: emp };
+    }
+
+    return { success: false, error: 'Incorrect credentials password.' };
   },
 
   changePassword: (userId, currentPassword, newPassword, isAdmin) => {
     if (isAdmin) {
       const superPwd = localStorage.getItem('wf_supervisor_password') || 'admin123';
-      if (String(currentPassword) !== String(superPwd)) {
+      if (currentPassword !== superPwd) {
         return { success: false, error: 'Incorrect current password.' };
       }
       localStorage.setItem('wf_supervisor_password', newPassword);
-      
-      // Also update the Admin row in the cached employees list if present
-      const employees = get(KEYS.EMPLOYEES);
-      const idx = employees.findIndex(e => e.id === 'admin');
-      if (idx !== -1) {
-        employees[idx].password = newPassword;
-        set(KEYS.EMPLOYEES, employees);
-      }
-      
       dbService.logAction(
         'Credentials Update',
         'System Admin',
@@ -780,6 +774,24 @@ dbService.changePassword = (userId, currentPassword, newPassword, isAdmin) => {
     apiCall('PUT', '/api/auth/password', { userId, currentPassword, newPassword, isAdmin });
   }
   return result;
+};
+
+dbService.logAction = (actionType, user, oldValue, newValue, remarks) => {
+  const logs = get(KEYS.AUDIT_LOGS);
+  const log = {
+    id: 'LOG' + Math.floor(100000 + Math.random() * 900000),
+    actionType,
+    user,
+    timestamp: new Date().toISOString(),
+    oldValue: oldValue ? String(oldValue) : null,
+    newValue: newValue ? String(newValue) : null,
+    ipAddress: '192.168.1.' + Math.floor(10 + Math.random() * 89),
+    deviceInfo: typeof navigator !== 'undefined' ? navigator.userAgent.substring(0, 100) : 'System Engine',
+    remarks
+  };
+  logs.push(log);
+  set(KEYS.AUDIT_LOGS, logs);
+  apiCall('POST', '/api/audit-logs', log);
 };
 
 
