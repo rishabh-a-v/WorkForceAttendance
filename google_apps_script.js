@@ -259,8 +259,8 @@ function handleLogin(ss, username, password) {
   const cleanUsername = String(username || '').trim().toLowerCase();
   
   if (cleanUsername === 'admin') {
-    const adminPassword = getConfig(ss, 'adminPassword', 'admin123');
-    if (password === adminPassword) {
+    const adminPassword = String(getConfig(ss, 'adminPassword', 'admin123'));
+    if (String(password) === adminPassword) {
       return { success: true, role: 'admin', user: { name: 'Admin Supervisor', id: 'admin' } };
     }
     return { success: false, error: 'Invalid admin password.' };
@@ -273,7 +273,7 @@ function handleLogin(ss, username, password) {
     return sheetId === cleanUsername || sheetName === cleanUsername;
   });
   if (!emp) return { success: false, error: 'User profile not found.' };
-  if (password !== (emp.password || '123456')) return { success: false, error: 'Incorrect credentials.' };
+  if (String(password) !== String(emp.password || '123456')) return { success: false, error: 'Incorrect credentials.' };
   
   return { success: true, role: emp.role || 'employee', user: emp };
 }
@@ -281,8 +281,8 @@ function handleLogin(ss, username, password) {
 function handleChangePassword(ss, payload) {
   const { userId, currentPassword, newPassword, isAdmin } = payload;
   if (isAdmin) {
-    const adminPassword = getConfig(ss, 'adminPassword', 'admin123');
-    if (currentPassword !== adminPassword) return { success: false, error: 'Incorrect current password.' };
+    const adminPassword = String(getConfig(ss, 'adminPassword', 'admin123'));
+    if (String(currentPassword) !== adminPassword) return { success: false, error: 'Incorrect current password.' };
     setConfig(ss, 'adminPassword', newPassword);
     return { success: true };
   }
@@ -292,7 +292,7 @@ function handleChangePassword(ss, payload) {
   const cleanUserId = String(userId || '').trim().toLowerCase();
   const emp = employees.find(e => String(e.id).trim().toLowerCase() === cleanUserId);
   if (!emp) return { success: false, error: 'Employee not found.' };
-  if (currentPassword !== (emp.password || '123456')) return { success: false, error: 'Incorrect current password.' };
+  if (String(currentPassword) !== String(emp.password || '123456')) return { success: false, error: 'Incorrect current password.' };
   
   updateRow(sheet, HEADERS.Employees, emp.id, { password: newPassword });
   return { success: true, employee: { ...emp, password: newPassword } };

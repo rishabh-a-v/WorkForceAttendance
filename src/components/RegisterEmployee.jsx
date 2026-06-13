@@ -383,12 +383,12 @@ export default function RegisterEmployee() {
   };
 
   const handleOpenEdit = (emp) => {
-    setEditName(emp.name);
-    setEditMobile(emp.mobile || '');
-    setEditDesignation(emp.designation || '');
-    setEditDepartment(emp.department || 'Packing');
+    setEditName(emp.name ? String(emp.name) : '');
+    setEditMobile(emp.mobile ? String(emp.mobile) : '');
+    setEditDesignation(emp.designation ? String(emp.designation) : '');
+    setEditDepartment(emp.department ? String(emp.department) : 'Packing');
     setEditPassword('');
-    setEditRole(emp.role || 'employee');
+    setEditRole(emp.role ? String(emp.role) : 'employee');
     setEditErrorMsg('');
     setEditSuccessMsg('');
     setSelectedEmpForEditing(emp);

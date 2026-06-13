@@ -124,7 +124,7 @@ const apiCall = async (method, path, body) => {
 
       if (!action) return null;
 
-      const url = `${API_BASE}?action=${encodeURIComponent(action)}&data=${encodeURIComponent(JSON.stringify(body || {}))}`;
+      const url = `${API_BASE}?action=${encodeURIComponent(action)}&data=${encodeURIComponent(JSON.stringify(body || {}))}&_t=${Date.now()}`;
       const res = await fetch(url, {
         method: 'GET'
       });
@@ -536,7 +536,7 @@ export const dbService = {
       return { success: false, error: 'User profile not found in system directory.' };
     }
 
-    if (password === (emp.password || '123456')) {
+    if (String(password) === String(emp.password || '123456')) {
       dbService.logAction(
         'Security Authentication',
         emp.name,
@@ -572,8 +572,8 @@ export const dbService = {
       if (idx === -1) return { success: false, error: 'Employee not found.' };
 
       const emp = employees[idx];
-      const storedPwd = emp.password || '123456';
-      if (currentPassword !== storedPwd) {
+      const storedPwd = String(emp.password || '123456');
+      if (String(currentPassword) !== storedPwd) {
         return { success: false, error: 'Incorrect current password.' };
       }
 
