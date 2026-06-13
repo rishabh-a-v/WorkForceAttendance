@@ -10,6 +10,7 @@ import AuditTrail from './components/AuditTrail';
 import EmployeePortal from './components/EmployeePortal';
 import SupervisorPortal from './components/SupervisorPortal';
 import Login from './components/Login';
+import ChangePasswordModal from './components/ChangePasswordModal';
 import { dbService } from './db/dbService';
 
 export default function App() {
@@ -32,6 +33,7 @@ export default function App() {
   const [pendingReviewsCount, setPendingReviewsCount] = useState(0);
   const [loginInitialTab, setLoginInitialTab] = useState('admin');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
 
   const updatePendingBadge = () => {
@@ -166,6 +168,7 @@ export default function App() {
           currentUser={currentUser}
           onLogout={handleLogout}
           onSwitchRole={handleSwitchRole}
+          onOpenChangePassword={() => setIsChangePasswordOpen(true)}
         />
       </div>
 
@@ -173,6 +176,11 @@ export default function App() {
       <main className="flex-1 flex flex-col overflow-hidden bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950">
         {renderActiveComponent()}
       </main>
+
+      {/* Change Password Modal */}
+      {isChangePasswordOpen && (
+        <ChangePasswordModal onClose={() => setIsChangePasswordOpen(false)} />
+      )}
     </div>
   );
 }

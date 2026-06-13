@@ -10,7 +10,7 @@ import {
   Camera
 } from 'lucide-react';
 
-export default function Sidebar({ activeTab, setActiveTab, pendingReviewsCount, portalRole = 'admin', currentUser, onLogout }) {
+export default function Sidebar({ activeTab, setActiveTab, pendingReviewsCount, portalRole = 'admin', currentUser, onLogout, onOpenChangePassword }) {
   
   // Nav items per role
   const adminItems = [
@@ -163,6 +163,16 @@ export default function Sidebar({ activeTab, setActiveTab, pendingReviewsCount, 
         >
           <span>Logout Session</span>
         </button>
+
+        {portalRole === 'admin' && (
+          <button
+            type="button"
+            onClick={() => onOpenChangePassword?.()}
+            className="w-full py-2 bg-dark-900 hover:bg-dark-850 border border-dark-800 text-brand-400 text-[10px] font-bold rounded-xl transition duration-150 cursor-pointer flex items-center justify-center space-x-1.5"
+          >
+            <span>Change Admin Password</span>
+          </button>
+        )}
 
 
 
