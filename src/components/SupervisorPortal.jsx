@@ -112,11 +112,11 @@ export default function SupervisorPortal({ currentUser }) {
         options.timeout = 10000;
         navigator.geolocation.getCurrentPosition(successCallback, (err2) => {
           console.error('Low accuracy geolocation also failed:', err2);
-          setGpsData({ lat: null, lon: null, status: 'GPS Unavailable' });
+          setGpsData({ lat: null, lon: null, status: `GPS Error: ${err2.message}` });
           setGpsLoading(false);
         }, options);
       } else {
-        setGpsData({ lat: null, lon: null, status: 'GPS Unavailable' });
+        setGpsData({ lat: null, lon: null, status: `GPS Error: ${error.message}` });
         setGpsLoading(false);
       }
     };

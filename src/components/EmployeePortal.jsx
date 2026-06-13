@@ -213,9 +213,11 @@ export default function EmployeePortal({ currentUser, onLogout }) {
   const fetchLocation = () => {
     setGpsLoading(true);
     setGpsData(null);
+    setErrorMsg('');
 
     if (!navigator.geolocation) {
       setGpsData({ lat: null, lon: null, status: 'GPS Unavailable' });
+      setErrorMsg('GPS Error: Geolocation is not supported by your browser or requires a secure HTTPS connection.');
       setGpsLoading(false);
       return;
     }
@@ -239,11 +241,13 @@ export default function EmployeePortal({ currentUser, onLogout }) {
         options.timeout = 10000;
         navigator.geolocation.getCurrentPosition(successCallback, (err2) => {
           console.error('Low accuracy geolocation also failed:', err2);
-          setGpsData({ lat: null, lon: null, status: 'GPS Unavailable' });
+          setGpsData({ lat: null, lon: null, status: `GPS Error: ${err2.message}` });
+          setErrorMsg(`GPS Error: ${err2.message} (Code ${err2.code}). Please verify device location services are enabled.`);
           setGpsLoading(false);
         }, options);
       } else {
-        setGpsData({ lat: null, lon: null, status: 'GPS Unavailable' });
+        setGpsData({ lat: null, lon: null, status: `GPS Error: ${error.message}` });
+        setErrorMsg(`GPS Error: ${error.message} (Code ${error.code}). Please verify device location services are enabled.`);
         setGpsLoading(false);
       }
     };

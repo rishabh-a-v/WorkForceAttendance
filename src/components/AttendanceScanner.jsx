@@ -120,6 +120,7 @@ export default function AttendanceScanner() {
         accuracy: 0,
         status: 'GPS Unavailable'
       });
+      setErrorMsg('GPS Error: Geolocation is not supported by your browser or requires a secure HTTPS connection.');
       setGpsLoading(false);
       return;
     }
@@ -145,10 +146,12 @@ export default function AttendanceScanner() {
         navigator.geolocation.getCurrentPosition(successCallback, (err2) => {
           console.error('Low accuracy geolocation also failed:', err2);
           setGpsData({ lat: null, lon: null, accuracy: 0, status: 'GPS Unavailable' });
+          setErrorMsg(`GPS Error: ${err2.message} (Code ${err2.code}). Please verify device location services are enabled.`);
           setGpsLoading(false);
         }, options);
       } else {
         setGpsData({ lat: null, lon: null, accuracy: 0, status: 'GPS Unavailable' });
+        setErrorMsg(`GPS Error: ${error.message} (Code ${error.code}). Please verify device location services are enabled.`);
         setGpsLoading(false);
       }
     };
