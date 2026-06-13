@@ -124,10 +124,9 @@ const apiCall = async (method, path, body) => {
 
       if (!action) return null;
 
-      const res = await fetch(API_BASE, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ action, ...body })
+      const url = `${API_BASE}?action=${encodeURIComponent(action)}&data=${encodeURIComponent(JSON.stringify(body || {}))}`;
+      const res = await fetch(url, {
+        method: 'GET'
       });
       return res.ok ? res.json() : null;
     }
