@@ -181,13 +181,17 @@ export default function Dashboard() {
   // Simulated CSV Download
   const handleCSVDownload = () => {
     let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Attendance ID,Employee ID,Employee Name,Check-In Time,Check-Out Time,Confidence,Quality,Liveness,Similarity,Location Status,Latitude,Longitude,Verification Status\n";
+    csvContent += "Attendance ID,Employee ID,Employee Name,Check-In Time,Check-Out Time,Confidence,Quality,Liveness,Similarity,Location Status,Check-In Latitude,Check-In Longitude,Check-Out Latitude,Check-Out Longitude,Verification Status\n";
     
     filteredAttendance.forEach(a => {
       const q = a.qualityScore !== undefined ? `${a.qualityScore}%` : 'N/A';
       const l = a.livenessScore !== undefined ? `${a.livenessScore}%` : 'N/A';
       const s = a.similarityScore !== undefined ? `${a.similarityScore}%` : 'N/A';
-      csvContent += `${a.id},${a.employeeId},${a.employeeName},${a.checkInTime},${a.checkOutTime || 'Active'},${a.confidence}%,${q},${l},${s},${a.attendanceStatus},${a.latitude || ''},${a.longitude || ''},${a.verificationStatus}\n`;
+      const checkInLat = a.checkInLatitude || a.latitude || '';
+      const checkInLon = a.checkInLongitude || a.longitude || '';
+      const checkOutLat = a.checkOutLatitude || '';
+      const checkOutLon = a.checkOutLongitude || '';
+      csvContent += `${a.id},${a.employeeId},${a.employeeName},${a.checkInTime},${a.checkOutTime || 'Active'},${a.confidence}%,${q},${l},${s},${a.attendanceStatus},${checkInLat},${checkInLon},${checkOutLat},${checkOutLon},${a.verificationStatus}\n`;
     });
     
     const encodedUri = encodeURI(csvContent);
@@ -548,9 +552,14 @@ export default function Dashboard() {
                           <MapPin className="h-3 w-3 mr-1" />
                           {record.attendanceStatus}
                         </span>
-                        {record.latitude && record.longitude && (
-                          <span className="text-[9px] text-dark-500 font-mono tracking-tighter">
-                            {record.latitude}, {record.longitude}
+                        {(record.checkInLatitude || record.latitude) && (
+                          <span className="text-[9px] text-dark-500 font-mono tracking-tighter" title="Clock-In Location">
+                            In: {record.checkInLatitude || record.latitude}, {record.checkInLongitude || record.longitude}
+                          </span>
+                        )}
+                        {record.checkOutLatitude && (
+                          <span className="text-[9px] text-dark-500 font-mono tracking-tighter" title="Clock-Out Location">
+                            Out: {record.checkOutLatitude}, {record.checkOutLongitude}
                           </span>
                         )}
                       </div>

@@ -340,9 +340,14 @@ export default function SupervisorQueue({ onActionTriggered }) {
                             <div>
                               <p className="text-[10px] text-dark-400">Perimeter GPS</p>
                               <p className="font-bold text-white mt-0.5">{selectedRecord.attendanceStatus}</p>
-                              {selectedRecord.latitude && selectedRecord.longitude && (
-                                <p className="text-[9px] text-dark-500 font-mono mt-0.5">
-                                  {selectedRecord.latitude}, {selectedRecord.longitude}
+                              {(selectedRecord.checkInLatitude || selectedRecord.latitude) && (
+                                <p className="text-[9px] text-dark-500 font-mono mt-0.5" title="Clock-In Location">
+                                  In: {selectedRecord.checkInLatitude || selectedRecord.latitude}, {selectedRecord.checkInLongitude || selectedRecord.longitude}
+                                </p>
+                              )}
+                              {selectedRecord.checkOutLatitude && (
+                                <p className="text-[9px] text-dark-500 font-mono mt-0.5" title="Clock-Out Location">
+                                  Out: {selectedRecord.checkOutLatitude}, {selectedRecord.checkOutLongitude}
                                 </p>
                               )}
                             </div>

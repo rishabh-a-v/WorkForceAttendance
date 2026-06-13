@@ -673,6 +673,8 @@ export default function EmployeePortal({ currentUser, onLogout }) {
                 checkOutTime: null,
                 latitude: gpsDataRef.current?.lat ? parseFloat(gpsDataRef.current.lat) : null,
                 longitude: gpsDataRef.current?.lon ? parseFloat(gpsDataRef.current.lon) : null,
+                checkOutLatitude: null,
+                checkOutLongitude: null,
                 confidence: finalScore,
                 qualityScore: matchedFace.qualityScore,
                 livenessScore: matchedFace.livenessScore,
@@ -704,7 +706,9 @@ export default function EmployeePortal({ currentUser, onLogout }) {
               const res = dbService.updateAttendance(activeCheckIn.id, {
                 checkOutTime: new Date().toISOString(),
                 confidence: Math.round((activeCheckIn.confidence + finalScore) / 2),
-                attendanceStatus: gpsStatus
+                attendanceStatus: gpsStatus,
+                checkOutLatitude: gpsDataRef.current?.lat ? parseFloat(gpsDataRef.current.lat) : null,
+                checkOutLongitude: gpsDataRef.current?.lon ? parseFloat(gpsDataRef.current.lon) : null
               });
 
               if (res.success) {

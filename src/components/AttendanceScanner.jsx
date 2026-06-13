@@ -607,6 +607,8 @@ export default function AttendanceScanner() {
           checkOutTime: null,
           latitude: gpsData?.lat ? parseFloat(gpsData.lat) : null,
           longitude: gpsData?.lon ? parseFloat(gpsData.lon) : null,
+          checkOutLatitude: null,
+          checkOutLongitude: null,
           confidence: f.confidence,
           qualityScore: f.qualityScore || 92,
           livenessScore: f.livenessScore || 95,
@@ -656,7 +658,9 @@ export default function AttendanceScanner() {
         const res = dbService.updateAttendance(activeCheckIn.id, {
           checkOutTime: new Date().toISOString(),
           confidence: Math.round((activeCheckIn.confidence + f.confidence) / 2), 
-          attendanceStatus: gpsStatus
+          attendanceStatus: gpsStatus,
+          checkOutLatitude: gpsData?.lat ? parseFloat(gpsData.lat) : null,
+          checkOutLongitude: gpsData?.lon ? parseFloat(gpsData.lon) : null
         });
         
         if (res.success) {
@@ -725,6 +729,8 @@ export default function AttendanceScanner() {
         checkOutTime: null,
         latitude: WORKSITE.LATITUDE,
         longitude: WORKSITE.LONGITUDE,
+        checkOutLatitude: null,
+        checkOutLongitude: null,
         confidence: 100, // Manual overrides get 100% confidence credit
         verificationStatus: 'Approved',
         attendanceStatus: 'Valid Location'
@@ -764,7 +770,9 @@ export default function AttendanceScanner() {
       const oldValue = JSON.stringify(activeCheckIn);
       const updateFields = {
         checkOutTime: overrideDate.toISOString(),
-        attendanceStatus: 'Valid Location'
+        attendanceStatus: 'Valid Location',
+        checkOutLatitude: WORKSITE.LATITUDE,
+        checkOutLongitude: WORKSITE.LONGITUDE
       };
 
       const res = dbService.updateAttendance(activeCheckIn.id, updateFields);

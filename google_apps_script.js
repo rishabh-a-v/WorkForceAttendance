@@ -4,7 +4,7 @@ const SPREADSHEET_ID = '1tBWz2uM_KDa09n0pOTMri99nfEjhwLpDJWGuGddFtt8'; // Paste 
 
 const HEADERS = {
   Employees: ['id', 'name', 'designation', 'department', 'mobile', 'joinDate', 'status', 'role', 'password', 'registeredPhotos', 'biometrics'],
-  Attendance: ['id', 'employeeId', 'employeeName', 'checkInTime', 'checkOutTime', 'latitude', 'longitude', 'confidence', 'qualityScore', 'livenessScore', 'similarityScore', 'verificationStatus', 'attendanceStatus', 'originalPhotoUrl', 'croppedFaceUrl'],
+  Attendance: ['id', 'employeeId', 'employeeName', 'checkInTime', 'checkOutTime', 'latitude', 'longitude', 'confidence', 'qualityScore', 'livenessScore', 'similarityScore', 'verificationStatus', 'attendanceStatus', 'originalPhotoUrl', 'croppedFaceUrl', 'checkOutLatitude', 'checkOutLongitude'],
   AuditLogs: ['id', 'actionType', 'user', 'timestamp', 'oldValue', 'newValue', 'ipAddress', 'deviceInfo', 'remarks'],
   Config: ['key', 'value']
 };
@@ -122,6 +122,16 @@ function initSheets(ss) {
     if (!sheet) {
       sheet = ss.insertSheet(name);
       sheet.appendRow(headers);
+    } else {
+      // Dynamic migration: check if any new headers are missing and append them to the end
+      const lastCol = sheet.getLastColumn();
+      if (lastCol > 0) {
+        const existingHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+        const missing = headers.filter(h => !existingHeaders.includes(h));
+        if (missing.length > 0) {
+          sheet.getRange(1, lastCol + 1, 1, missing.length).setValues([missing]);
+        }
+      }
     }
   }
 }

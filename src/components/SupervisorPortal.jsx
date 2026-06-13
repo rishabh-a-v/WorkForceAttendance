@@ -560,6 +560,8 @@ export default function SupervisorPortal({ currentUser }) {
           checkOutTime: null,
           latitude: gpsData?.lat ? parseFloat(gpsData.lat) : null,
           longitude: gpsData?.lon ? parseFloat(gpsData.lon) : null,
+          checkOutLatitude: null,
+          checkOutLongitude: null,
           confidence: f.confidence,
           qualityScore: f.qualityScore || 92,
           livenessScore: f.livenessScore || 95,
@@ -609,7 +611,9 @@ export default function SupervisorPortal({ currentUser }) {
         const res = dbService.updateAttendance(activeCheckIn.id, {
           checkOutTime: new Date().toISOString(),
           confidence: Math.round((activeCheckIn.confidence + f.confidence) / 2), 
-          attendanceStatus: gpsStatus
+          attendanceStatus: gpsStatus,
+          checkOutLatitude: gpsData?.lat ? parseFloat(gpsData.lat) : null,
+          checkOutLongitude: gpsData?.lon ? parseFloat(gpsData.lon) : null
         });
         
         if (res.success) {
@@ -722,6 +726,8 @@ export default function SupervisorPortal({ currentUser }) {
         checkOutTime: null,
         latitude: WORKSITE.LATITUDE,
         longitude: WORKSITE.LONGITUDE,
+        checkOutLatitude: null,
+        checkOutLongitude: null,
         confidence: 100, // Manual overrides get 100% confidence credit
         verificationStatus: 'Verification Required', // Restricted access: Supervisor logs require verification
         attendanceStatus: 'Valid Location'
@@ -762,7 +768,9 @@ export default function SupervisorPortal({ currentUser }) {
       const updateFields = {
         checkOutTime: overrideDate.toISOString(),
         attendanceStatus: 'Valid Location',
-        verificationStatus: 'Verification Required' // Restricted access
+        verificationStatus: 'Verification Required', // Restricted access
+        checkOutLatitude: WORKSITE.LATITUDE,
+        checkOutLongitude: WORKSITE.LONGITUDE
       };
 
       const res = dbService.updateAttendance(activeCheckIn.id, updateFields);
