@@ -1,7 +1,6 @@
 const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
-const { Readable } = require('stream');
 
 
 const HEADERS = {
@@ -17,7 +16,6 @@ const HEADERS = {
 };
 
 let sheetsClient = null;
-let driveClient = null;
 let spreadsheetId = null;
 let isConfigured = false;
 let sheetIds = {}; // sheetName -> sheetId
@@ -33,8 +31,7 @@ async function initGoogleSheets() {
 
     let auth = null;
     const scopes = [
-      'https://www.googleapis.com/auth/spreadsheets',
-      'https://www.googleapis.com/auth/drive'
+      'https://www.googleapis.com/auth/spreadsheets'
     ];
     
     // Check 1: Env variables (ideal for hosting providers like Render)
@@ -73,7 +70,6 @@ async function initGoogleSheets() {
     }
 
     sheetsClient = google.sheets({ version: 'v4', auth });
-    driveClient = google.drive({ version: 'v3', auth });
     
     await initializeWorksheets();
     isConfigured = true;
@@ -299,94 +295,16 @@ async function deleteRow(sheetName, id) {
     return false;
   }
 }
-
-async function uploadImageToDrive(base64Data, filename) {
-  if (!base64Data || typeof base64Data !== 'string' || !base64Data.startsWith('data:image')) {
-    return base64Data; // Already a URL or empty
-  }
-  
-  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-  if (!folderId || !driveClient) {
-    return base64Data; // Fallback
-  }
-
-  try {
-    const parts = base64Data.split(',');
-    const base64Image = parts[1] || parts[0];
-    const buffer = Buffer.from(base64Image, 'base64');
-
-    const media = {
-      mimeType: 'image/jpeg',
-      body: Readable.from(buffer)
-    };
-
-    const fileMetadata = {
-      name: filename,
-      parents: [folderId]
-    };
-
-    const response = await driveClient.files.create({
-      requestBody: fileMetadata,
-      media: media,
-      fields: 'id, webViewLink'
-    });
-
-    const fileId = response.data.id;
-
-    // Make file viewable by anyone with link
-    await driveClient.permissions.create({
-      fileId: fileId,
-      requestBody: {
-        role: 'reader',
-        type: 'anyone'
-      }
-    });
-
-    return response.data.webViewLink;
-  } catch (error) {
-    console.error('[Google Drive] Upload failed for ' + filename + ':', error.message);
-    return base64Data; // Fallback
-  }
-}
-
 module.exports = {
   initGoogleSheets,
   isConfigured: () => isConfigured,
   getEmployees: () => readSheetData('Employees'),
-  saveEmployee: async (emp) => {
-    if (emp.registeredPhotos && Array.isArray(emp.registeredPhotos)) {
-      emp.registeredPhotos = await Promise.all(emp.registeredPhotos.map(async (photo, idx) => {
-        return uploadImageToDrive(photo, `emp_${emp.id}_ref_${idx + 1}.jpg`);
-      }));
-    }
-    if (emp.avatar) {
-      emp.avatar = await uploadImageToDrive(emp.avatar, `emp_${emp.id}_avatar.jpg`);
-    }
-    return appendRow('Employees', emp);
-  },
-  updateEmployee: async (id, fields) => {
-    if (fields.registeredPhotos && Array.isArray(fields.registeredPhotos)) {
-      fields.registeredPhotos = await Promise.all(fields.registeredPhotos.map(async (photo, idx) => {
-        return uploadImageToDrive(photo, `emp_${id}_ref_${idx + 1}.jpg`);
-      }));
-    }
-    if (fields.avatar) {
-      fields.avatar = await uploadImageToDrive(fields.avatar, `emp_${id}_avatar.jpg`);
-    }
-    return updateRow('Employees', id, fields);
-  },
+  saveEmployee: (emp) => appendRow('Employees', emp),
+  updateEmployee: (id, fields) => updateRow('Employees', id, fields),
   deleteEmployee: (id) => deleteRow('Employees', id),
   getAttendance: () => readSheetData('Attendance'),
   saveAttendance: (rec) => appendRow('Attendance', rec),
-  updateAttendance: async (id, fields) => {
-    if (fields.originalPhotoUrl) {
-      fields.originalPhotoUrl = await uploadImageToDrive(fields.originalPhotoUrl, `photo_${id}_orig.jpg`);
-    }
-    if (fields.croppedFaceUrl) {
-      fields.croppedFaceUrl = await uploadImageToDrive(fields.croppedFaceUrl, `photo_${id}_cropped.jpg`);
-    }
-    return updateRow('Attendance', id, fields);
-  },
+  updateAttendance: (id, fields) => updateRow('Attendance', id, fields),
   deleteAttendance: (id) => deleteRow('Attendance', id),
   getAuditLogs: () => readSheetData('AuditLogs'),
   saveAuditLog: (log) => appendRow('AuditLogs', log)
