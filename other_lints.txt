@@ -1,0 +1,136 @@
+
+/Users/rishabhav/Desktop/Transworld /WorkForce attendance /src/components/AttendanceScanner.jsx
+    1:8  error  'React' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  no-unused-vars
+    6:3  error  'AlertCircle' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            no-unused-vars
+    7:3  error  'HelpCircle' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             no-unused-vars
+   18:3  error  'ChevronDown' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            no-unused-vars
+   26:3  error  'cropFaceFromCanvas' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     no-unused-vars
+   30:3  error  'recognizeFaceInBox' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     no-unused-vars
+   96:5  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+  94 |
+  95 |   useEffect(() => {
+> 96 |     setEmployees(dbService.getEmployees());
+     |     ^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  97 |     updateActiveShift();
+  98 |     fetchLocation();
+  99 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              react-hooks/set-state-in-effect
+   97:5  error  Error: Cannot access variable before it is declared
+
+`updateActiveShift` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+   95 |   useEffect(() => {
+   96 |     setEmployees(dbService.getEmployees());
+>  97 |     updateActiveShift();
+      |     ^^^^^^^^^^^^^^^^^ `updateActiveShift` accessed before it is declared
+   98 |     fetchLocation();
+   99 |     
+  100 |     // Pre-load deep learning face-api models
+
+  109 |   }, []);
+  110 |
+> 111 |   const updateActiveShift = () => {
+      |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 112 |     const attendance = dbService.getAttendance();
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 113 |     const today = new Date().toDateString();
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 114 |     const active = attendance.filter(a => 
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 115 |       new Date(a.checkInTime).toDateString() === today && 
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 116 |       !a.checkOutTime && 
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 117 |       a.employeeId !== 'UNKNOWN'
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 118 |     );
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 119 |     setActiveShiftEmployees(active);
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 120 |   };
+      | ^^^^^ `updateActiveShift` is declared here
+  121 |
+  122 |   const fetchLocation = () => {
+  123 |     setGpsLoading(true);  react-hooks/immutability
+   98:5  error  Error: Cannot access variable before it is declared
+
+`fetchLocation` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+   96 |     setEmployees(dbService.getEmployees());
+   97 |     updateActiveShift();
+>  98 |     fetchLocation();
+      |     ^^^^^^^^^^^^^ `fetchLocation` accessed before it is declared
+   99 |     
+  100 |     // Pre-load deep learning face-api models
+  101 |     loadFaceApiModels().catch(err => {
+
+  120 |   };
+  121 |
+> 122 |   const fetchLocation = () => {
+      |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 123 |     setGpsLoading(true);
+      | ^^^^^^^^^^^^^^^^^^^^^^^^
+> 124 |     setGpsData(null);
+      …
+      | ^^^^^^^^^^^^^^^^^^^^^^^^
+> 170 |     );
+      | ^^^^^^^^^^^^^^^^^^^^^^^^
+> 171 |   };
+      | ^^^^^ `fetchLocation` is declared here
+  172 |
+  173 |   const handleCalibrateGeofence = () => {
+  174 |     if (!gpsData || !gpsData.lat || !gpsData.lon) return;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    react-hooks/immutability
+  107:7  error  Error: Cannot access variable before it is declared
+
+`handleStopCamera` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+  105 |     return () => {
+  106 |       scanLoopActive.current = false;
+> 107 |       handleStopCamera();
+      |       ^^^^^^^^^^^^^^^^ `handleStopCamera` accessed before it is declared
+  108 |     };
+  109 |   }, []);
+  110 |
+
+  248 |   };
+  249 |
+> 250 |   const handleStopCamera = () => {
+      |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 251 |     scanLoopActive.current = false;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 252 |     groupRollingFramesRef.current = [];
+      …
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 263 |     setIsTorchOn(false);
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 264 |   };
+      | ^^^^^ `handleStopCamera` is declared here
+  265 |
+  266 |   const toggleTorch = async () => {
+  267 |     if (!streamRef.current) return;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            react-hooks/immutability
+  180:9  error  'handleFetchLocation' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           no-unused-vars
+  634:9  error  'handleSubmitShiftLogs' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         no-unused-vars
+  696:5  error  'setSelectedTemplateIdx' is not defined                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            no-undef
+
+/Users/rishabhav/Desktop/Transworld /WorkForce attendance /src/components/AuditTrail.jsx
+  1:8  error  'React' is defined but never used        no-unused-vars
+  6:3  error  'ShieldCheck' is defined but never used  no-unused-vars
+  8:3  error  'Smartphone' is defined but never used   no-unused-vars
+
+/Users/rishabhav/Desktop/Transworld /WorkForce attendance /src/components/Dashboard.jsx
+    1:8   error  'React' is defined but never used    no-unused-vars
+   13:3   error  'XCircle' is defined but never used  no-unused-vars
+  364:53  error  'i' is defined but never used        no-unused-vars
+
+/Users/rishabhav/Desktop/Transworld /WorkForce attendance /src/components/Login.jsx
+   1:8  error  'React' is defined but never used                 no-unused-vars
+  58:9  error  'activeColor' is assigned a value but never used  no-unused-vars
+
+✖ 21 problems (21 errors, 0 warnings)
+
