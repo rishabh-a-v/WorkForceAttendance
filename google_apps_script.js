@@ -1,7 +1,6 @@
 // Google Apps Script Backend for WorkForce Attendance
 // Deploy this as a Web App: Execute as "Me", Access: "Anyone".
-
-
+const SPREADSHEET_ID = '1FFJB0t1-QmjGpR5xXosJGcu39pMhVu8frArouAACL-Q'; // Paste your Google Spreadsheet ID here (found in your Google Sheet URL)
 
 const HEADERS = {
   Employees: ['id', 'name', 'designation', 'department', 'mobile', 'joinDate', 'status', 'role', 'password', 'registeredPhotos', 'biometrics'],
@@ -14,7 +13,7 @@ function doPost(e) {
   try {
     const payload = JSON.parse(e.postData.contents);
     const action = payload.action;
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     
     // Auto-create sheets if they don't exist
     initSheets(ss);
