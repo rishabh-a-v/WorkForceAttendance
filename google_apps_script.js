@@ -2,6 +2,7 @@
 // Deploy this as a Web App: Execute as "Me", Access: "Anyone".
 
 const DRIVE_FOLDER_ID = '1nZMJ1PuI13WkhJkjlTsakF655i8QOuav'; // Paste your Google Drive Folder ID here
+const SPREADSHEET_ID = '1FFJB0t1-QmjGpR5xXosJGcu39pMhVu8frArouAACL-Q'; // Paste your Google Spreadsheet ID here
 
 const HEADERS = {
   Employees: ['id', 'name', 'designation', 'department', 'mobile', 'joinDate', 'status', 'role', 'password', 'registeredPhotos', 'biometrics'],
@@ -14,7 +15,7 @@ function doPost(e) {
   try {
     const payload = JSON.parse(e.postData.contents);
     const action = payload.action;
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     
     // Auto-create sheets if they don't exist
     initSheets(ss);
