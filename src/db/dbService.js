@@ -59,342 +59,372 @@ const API_BASE = import.meta.env.VITE_API_URL === 'disabled'
   ? ''
   : (import.meta.env.VITE_API_URL || (typeof window !== 'undefined' ? window.location.origin : ''));
 
+const runSupabase = async (method, path, body) => {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    console.warn('[dbService] Supabase config credentials missing.');
+    return null;
+  }
+
+  const headers = {
+    'apikey': SUPABASE_ANON_KEY,
+    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+    'Content-Type': 'application/json'
+  };
+
+  const sbFetch = async (urlPath, opts = {}) => {
+    const url = `${SUPABASE_URL}/rest/v1${urlPath}`;
+    const res = await fetch(url, {
+      headers,
+      ...opts
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Supabase Error: ${res.statusText} - ${errText}`);
+    }
+    if (opts.method === 'PATCH' || opts.method === 'DELETE') {
+      return { success: true };
+    }
+    const text = await res.text();
+    return text ? JSON.parse(text) : { success: true };
+  };
+
+  // 1. Auth Login Handler
+  if (path === '/api/auth/login' && method === 'POST') {
+    const { username, password } = body;
+    const cleanUsername = String(username || '').trim().toLowerCase();
+
+    if (cleanUsername === 'admin') {
+      const configRes = await sbFetch('/config?key=eq.adminPassword&select=value');
+      const adminPassword = configRes.length > 0 ? configRes[0].value : 'admin123';
+      if (password === adminPassword) {
+        return { success: true, role: 'admin', user: { name: 'Admin Supervisor', id: 'admin' } };
+      }
+      return { success: false, error: 'Invalid admin password.' };
+    }
+
+    const employees = await sbFetch(`/employees?or=(id.ilike.${cleanUsername},name.ilike.${cleanUsername})&select=*`);
+    if (employees.length === 0) {
+      return { success: false, error: 'User profile not found.' };
+    }
+    const emp = employees[0];
+    if (String(password) !== String(emp.password || '123456')) {
+      return { success: false, error: 'Incorrect credentials.' };
+    }
+    return { success: true, role: emp.role || 'employee', user: emp };
+  }
+
+  // 2. Auth Change Password Handler
+  if (path === '/api/auth/password' && method === 'PUT') {
+    const { userId, currentPassword, newPassword, isAdmin } = body;
+    if (isAdmin) {
+      const configRes = await sbFetch('/config?key=eq.adminPassword&select=value');
+      const adminPassword = configRes.length > 0 ? configRes[0].value : 'admin123';
+      if (currentPassword !== adminPassword) {
+        return { success: false, error: 'Incorrect current password.' };
+      }
+      
+      const checkRes = await sbFetch('/config?key=eq.adminPassword&select=key');
+      if (checkRes.length > 0) {
+        await sbFetch('/config?key=eq.adminPassword', {
+          method: 'PATCH',
+          body: JSON.stringify({ value: newPassword })
+        });
+      } else {
+        await sbFetch('/config', {
+          method: 'POST',
+          body: JSON.stringify({ key: 'adminPassword', value: newPassword })
+        });
+      }
+      return { success: true };
+    }
+
+    const employees = await sbFetch(`/employees?id=eq.${userId}&select=*`);
+    if (employees.length === 0) return { success: false, error: 'Employee not found.' };
+    const emp = employees[0];
+    if (String(currentPassword) !== String(emp.password || '123456')) {
+      return { success: false, error: 'Incorrect current password.' };
+    }
+    await sbFetch(`/employees?id=eq.${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ password: newPassword })
+    });
+    return { success: true };
+  }
+
+  // 3. Config / Worksite Handler
+  if (path === '/api/config/worksite') {
+    if (method === 'GET') {
+      const configRes = await sbFetch('/config?key=eq.worksite&select=value');
+      if (configRes.length > 0) {
+        return JSON.parse(configRes[0].value);
+      }
+      return { latitude: 12.9716, longitude: 77.5946, radiusMeters: 250 };
+    }
+    if (method === 'PUT') {
+      const configRes = await sbFetch('/config?key=eq.worksite&select=key');
+      if (configRes.length > 0) {
+        await sbFetch('/config?key=eq.worksite', {
+          method: 'PATCH',
+          body: JSON.stringify({ value: JSON.stringify(body) })
+        });
+      } else {
+        await sbFetch('/config', {
+          method: 'POST',
+          body: JSON.stringify({ key: 'worksite', value: JSON.stringify(body) })
+        });
+      }
+      return { success: true };
+    }
+  }
+
+  // 4. Employees CRUD
+  if (path === '/api/employees') {
+    if (method === 'GET') {
+      return await sbFetch('/employees?select=*');
+    }
+    if (method === 'POST') {
+      await sbFetch('/employees', {
+        method: 'POST',
+        body: JSON.stringify(body)
+      });
+      return { success: true };
+    }
+  }
+  if (path.startsWith('/api/employees/')) {
+    const empId = path.split('/')[3];
+    if (path.endsWith('/samples')) {
+      const employees = JSON.parse(localStorage.getItem('wf_employees') || '[]');
+      const emp = employees.find(e => e.id === empId);
+      if (emp) {
+        await sbFetch(`/employees?id=eq.${empId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            biometrics: emp.biometrics,
+            registeredPhotos: emp.registeredPhotos
+          })
+        });
+      }
+      return { success: true };
+    }
+    if (path.includes('/samples/')) {
+      const employees = JSON.parse(localStorage.getItem('wf_employees') || '[]');
+      const emp = employees.find(e => e.id === empId);
+      if (emp) {
+        await sbFetch(`/employees?id=eq.${empId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            biometrics: emp.biometrics,
+            registeredPhotos: emp.registeredPhotos
+          })
+        });
+      }
+      return { success: true };
+    }
+    if (method === 'PUT') {
+      await sbFetch(`/employees?id=eq.${empId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body)
+      });
+      return { success: true };
+    }
+    if (method === 'DELETE') {
+      await sbFetch(`/employees?id=eq.${empId}`, {
+        method: 'DELETE'
+      });
+      return { success: true };
+    }
+  }
+
+  // 5. Attendance CRUD
+  if (path === '/api/attendance') {
+    if (method === 'GET') {
+      return await sbFetch('/attendance?select=*');
+    }
+    if (method === 'POST') {
+      await sbFetch('/attendance', {
+        method: 'POST',
+        body: JSON.stringify(body)
+      });
+      return { success: true };
+    }
+  }
+  if (path.startsWith('/api/attendance/')) {
+    const attId = path.split('/').pop();
+    if (method === 'PUT') {
+      await sbFetch(`/attendance?id=eq.${attId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body)
+      });
+      return { success: true };
+    }
+    if (method === 'DELETE') {
+      await sbFetch(`/attendance?id=eq.${attId}`, {
+        method: 'DELETE'
+      });
+      return { success: true };
+    }
+  }
+
+  // 6. Photos CRUD
+  if (path === '/api/photos') {
+    if (method === 'GET') {
+      return await sbFetch('/photos?select=*');
+    }
+    if (method === 'POST') {
+      await sbFetch('/photos', {
+        method: 'POST',
+        body: JSON.stringify(body)
+      });
+      return { success: true };
+    }
+  }
+
+  // 7. AuditLogs CRUD
+  if (path === '/api/audit-logs') {
+    if (method === 'GET') {
+      return await sbFetch('/auditlogs?select=*');
+    }
+    if (method === 'POST') {
+      await sbFetch('/auditlogs', {
+        method: 'POST',
+        body: JSON.stringify(body)
+      });
+      return { success: true };
+    }
+  }
+
+  return null;
+};
+
+const runGoogleSheets = async (method, path, body) => {
+  if (!API_BASE || API_BASE === 'disabled') return null;
+  const isAppsScript = API_BASE.includes('script.google.com');
+
+  if (isAppsScript) {
+    let action = '';
+    let sheetsBody = body;
+    if (path === '/api/employees' && method === 'GET') {
+      action = 'getEmployees';
+    } else if (path === '/api/employees' && method === 'POST') {
+      action = 'saveEmployee';
+    } else if (path.startsWith('/api/employees/') && path.endsWith('/samples') && method === 'POST') {
+      const empId = path.split('/')[3];
+      const employees = JSON.parse(localStorage.getItem('wf_employees') || '[]');
+      const emp = employees.find(e => e.id === empId);
+      if (emp) {
+        action = 'updateEmployee';
+        sheetsBody = {
+          id: empId,
+          biometrics: emp.biometrics,
+          registeredPhotos: emp.registeredPhotos
+        };
+      }
+    } else if (path.startsWith('/api/employees/') && path.includes('/samples/') && method === 'DELETE') {
+      const empId = path.split('/')[3];
+      const employees = JSON.parse(localStorage.getItem('wf_employees') || '[]');
+      const emp = employees.find(e => e.id === empId);
+      if (emp) {
+        action = 'updateEmployee';
+        sheetsBody = {
+          id: empId,
+          biometrics: emp.biometrics,
+          registeredPhotos: emp.registeredPhotos
+        };
+      }
+    } else if (path.startsWith('/api/employees/') && method === 'PUT') {
+      action = 'updateEmployee';
+      sheetsBody = { ...body, id: path.split('/').pop() };
+    } else if (path.startsWith('/api/employees/') && method === 'DELETE') {
+      action = 'deleteEmployee';
+      sheetsBody = { id: path.split('/').pop() };
+    } else if (path === '/api/attendance' && method === 'GET') {
+      action = 'getAttendance';
+    } else if (path === '/api/attendance' && method === 'POST') {
+      action = 'saveAttendance';
+    } else if (path.startsWith('/api/attendance/') && method === 'PUT') {
+      action = 'updateAttendance';
+      sheetsBody = { ...body, id: path.split('/').pop() };
+    } else if (path.startsWith('/api/attendance/') && method === 'DELETE') {
+      action = 'deleteAttendance';
+      sheetsBody = { id: path.split('/').pop() };
+    } else if (path === '/api/photos' && method === 'GET') {
+      action = 'getPhotos';
+    } else if (path === '/api/photos' && method === 'POST') {
+      action = 'savePhotos';
+    } else if (path === '/api/audit-logs' && method === 'GET') {
+      action = 'getAuditLogs';
+    } else if (path === '/api/audit-logs' && method === 'POST') {
+      action = 'saveAuditLog';
+    } else if (path === '/api/config/worksite' && method === 'GET') {
+      action = 'getWorksite';
+    } else if (path === '/api/config/worksite' && method === 'PUT') {
+      action = 'updateWorksite';
+    } else if (path === '/api/auth/login' && method === 'POST') {
+      action = 'login';
+    } else if (path === '/api/auth/password' && method === 'PUT') {
+      action = 'changePassword';
+    }
+
+    if (!action) return null;
+
+    if (method === 'GET') {
+      const url = `${API_BASE}?action=${encodeURIComponent(action)}&data=${encodeURIComponent(JSON.stringify(sheetsBody || {}))}&_t=${Date.now()}`;
+      const res = await fetch(url, {
+        method: 'GET'
+      });
+      return res.ok ? res.json() : null;
+    } else {
+      const res = await fetch(API_BASE, {
+        method: 'POST',
+        body: JSON.stringify({ action, ...sheetsBody })
+      });
+      return res.ok ? res.json() : null;
+    }
+  }
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  return res.ok ? res.json() : null;
+};
+
 const apiCall = async (method, path, body) => {
   if (BACKEND_PROVIDER === 'disabled') return null;
   try {
-    // -------------------------------------------------------------
-    // SUPABASE PROVIDER
-    // -------------------------------------------------------------
+    const isHybrid = BACKEND_PROVIDER === 'hybrid';
+    
     if (BACKEND_PROVIDER === 'supabase') {
-      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-        console.warn('[dbService] Supabase config credentials missing.');
-        return null;
-      }
-
-      const headers = {
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-        'Content-Type': 'application/json'
-      };
-
-      const sbFetch = async (urlPath, opts = {}) => {
-        const url = `${SUPABASE_URL}/rest/v1${urlPath}`;
-        const res = await fetch(url, {
-          headers,
-          ...opts
-        });
-        if (!res.ok) {
-          const errText = await res.text();
-          throw new Error(`Supabase Error: ${res.statusText} - ${errText}`);
-        }
-        if (opts.method === 'PATCH' || opts.method === 'DELETE') {
-          return { success: true };
-        }
-        const text = await res.text();
-        return text ? JSON.parse(text) : { success: true };
-      };
-
-      // 1. Auth Login Handler
-      if (path === '/api/auth/login' && method === 'POST') {
-        const { username, password } = body;
-        const cleanUsername = String(username || '').trim().toLowerCase();
-
-        if (cleanUsername === 'admin') {
-          const configRes = await sbFetch('/config?key=eq.adminPassword&select=value');
-          const adminPassword = configRes.length > 0 ? configRes[0].value : 'admin123';
-          if (password === adminPassword) {
-            return { success: true, role: 'admin', user: { name: 'Admin Supervisor', id: 'admin' } };
-          }
-          return { success: false, error: 'Invalid admin password.' };
-        }
-
-        const employees = await sbFetch(`/employees?or=(id.ilike.${cleanUsername},name.ilike.${cleanUsername})&select=*`);
-        if (employees.length === 0) {
-          return { success: false, error: 'User profile not found.' };
-        }
-        const emp = employees[0];
-        if (String(password) !== String(emp.password || '123456')) {
-          return { success: false, error: 'Incorrect credentials.' };
-        }
-        return { success: true, role: emp.role || 'employee', user: emp };
-      }
-
-      // 2. Auth Change Password Handler
-      if (path === '/api/auth/password' && method === 'PUT') {
-        const { userId, currentPassword, newPassword, isAdmin } = body;
-        if (isAdmin) {
-          const configRes = await sbFetch('/config?key=eq.adminPassword&select=value');
-          const adminPassword = configRes.length > 0 ? configRes[0].value : 'admin123';
-          if (currentPassword !== adminPassword) {
-            return { success: false, error: 'Incorrect current password.' };
-          }
-          
-          const checkRes = await sbFetch('/config?key=eq.adminPassword&select=key');
-          if (checkRes.length > 0) {
-            await sbFetch('/config?key=eq.adminPassword', {
-              method: 'PATCH',
-              body: JSON.stringify({ value: newPassword })
-            });
-          } else {
-            await sbFetch('/config', {
-              method: 'POST',
-              body: JSON.stringify({ key: 'adminPassword', value: newPassword })
-            });
-          }
-          return { success: true };
-        }
-
-        const employees = await sbFetch(`/employees?id=eq.${userId}&select=*`);
-        if (employees.length === 0) return { success: false, error: 'Employee not found.' };
-        const emp = employees[0];
-        if (String(currentPassword) !== String(emp.password || '123456')) {
-          return { success: false, error: 'Incorrect current password.' };
-        }
-        await sbFetch(`/employees?id=eq.${userId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ password: newPassword })
-        });
-        return { success: true };
-      }
-
-      // 3. Config / Worksite Handler
-      if (path === '/api/config/worksite') {
-        if (method === 'GET') {
-          const configRes = await sbFetch('/config?key=eq.worksite&select=value');
-          if (configRes.length > 0) {
-            return JSON.parse(configRes[0].value);
-          }
-          return { latitude: 12.9716, longitude: 77.5946, radiusMeters: 250 };
-        }
-        if (method === 'PUT') {
-          const configRes = await sbFetch('/config?key=eq.worksite&select=key');
-          if (configRes.length > 0) {
-            await sbFetch('/config?key=eq.worksite', {
-              method: 'PATCH',
-              body: JSON.stringify({ value: JSON.stringify(body) })
-            });
-          } else {
-            await sbFetch('/config', {
-              method: 'POST',
-              body: JSON.stringify({ key: 'worksite', value: JSON.stringify(body) })
-            });
-          }
-          return { success: true };
-        }
-      }
-
-      // 4. Employees CRUD
-      if (path === '/api/employees') {
-        if (method === 'GET') {
-          return await sbFetch('/employees?select=*');
-        }
-        if (method === 'POST') {
-          await sbFetch('/employees', {
-            method: 'POST',
-            body: JSON.stringify(body)
-          });
-          return { success: true };
-        }
-      }
-      if (path.startsWith('/api/employees/')) {
-        const empId = path.split('/')[3];
-        if (path.endsWith('/samples')) {
-          const employees = JSON.parse(localStorage.getItem('wf_employees') || '[]');
-          const emp = employees.find(e => e.id === empId);
-          if (emp) {
-            await sbFetch(`/employees?id=eq.${empId}`, {
-              method: 'PATCH',
-              body: JSON.stringify({
-                biometrics: emp.biometrics,
-                registeredPhotos: emp.registeredPhotos
-              })
-            });
-          }
-          return { success: true };
-        }
-        if (path.includes('/samples/')) {
-          const employees = JSON.parse(localStorage.getItem('wf_employees') || '[]');
-          const emp = employees.find(e => e.id === empId);
-          if (emp) {
-            await sbFetch(`/employees?id=eq.${empId}`, {
-              method: 'PATCH',
-              body: JSON.stringify({
-                biometrics: emp.biometrics,
-                registeredPhotos: emp.registeredPhotos
-              })
-            });
-          }
-          return { success: true };
-        }
-        if (method === 'PUT') {
-          await sbFetch(`/employees?id=eq.${empId}`, {
-            method: 'PATCH',
-            body: JSON.stringify(body)
-          });
-          return { success: true };
-        }
-        if (method === 'DELETE') {
-          await sbFetch(`/employees?id=eq.${empId}`, {
-            method: 'DELETE'
-          });
-          return { success: true };
-        }
-      }
-
-      // 5. Attendance CRUD
-      if (path === '/api/attendance') {
-        if (method === 'GET') {
-          return await sbFetch('/attendance?select=*');
-        }
-        if (method === 'POST') {
-          await sbFetch('/attendance', {
-            method: 'POST',
-            body: JSON.stringify(body)
-          });
-          return { success: true };
-        }
-      }
-      if (path.startsWith('/api/attendance/')) {
-        const attId = path.split('/').pop();
-        if (method === 'PUT') {
-          await sbFetch(`/attendance?id=eq.${attId}`, {
-            method: 'PATCH',
-            body: JSON.stringify(body)
-          });
-          return { success: true };
-        }
-        if (method === 'DELETE') {
-          await sbFetch(`/attendance?id=eq.${attId}`, {
-            method: 'DELETE'
-          });
-          return { success: true };
-        }
-      }
-
-      // 6. Photos CRUD
-      if (path === '/api/photos') {
-        if (method === 'GET') {
-          return await sbFetch('/photos?select=*');
-        }
-        if (method === 'POST') {
-          await sbFetch('/photos', {
-            method: 'POST',
-            body: JSON.stringify(body)
-          });
-          return { success: true };
-        }
-      }
-
-      // 7. AuditLogs CRUD
-      if (path === '/api/audit-logs') {
-        if (method === 'GET') {
-          return await sbFetch('/auditlogs?select=*');
-        }
-        if (method === 'POST') {
-          await sbFetch('/auditlogs', {
-            method: 'POST',
-            body: JSON.stringify(body)
-          });
-          return { success: true };
-        }
-      }
-
-      return null;
+      return await runSupabase(method, path, body);
     }
-
-    // -------------------------------------------------------------
-    // GOOGLE SHEETS / LOCAL BACKEND PROVIDER (DEFAULT)
-    // -------------------------------------------------------------
-    if (!API_BASE || API_BASE === 'disabled') return null;
-    const isAppsScript = API_BASE.includes('script.google.com');
-
-    if (isAppsScript) {
-      let action = '';
-      if (path === '/api/employees' && method === 'GET') {
-        action = 'getEmployees';
-      } else if (path === '/api/employees' && method === 'POST') {
-        action = 'saveEmployee';
-      } else if (path.startsWith('/api/employees/') && path.endsWith('/samples') && method === 'POST') {
-        const empId = path.split('/')[3];
-        const employees = JSON.parse(localStorage.getItem('wf_employees') || '[]');
-        const emp = employees.find(e => e.id === empId);
-        if (emp) {
-          action = 'updateEmployee';
-          body = {
-            id: empId,
-            biometrics: emp.biometrics,
-            registeredPhotos: emp.registeredPhotos
-          };
-        }
-      } else if (path.startsWith('/api/employees/') && path.includes('/samples/') && method === 'DELETE') {
-        const empId = path.split('/')[3];
-        const employees = JSON.parse(localStorage.getItem('wf_employees') || '[]');
-        const emp = employees.find(e => e.id === empId);
-        if (emp) {
-          action = 'updateEmployee';
-          body = {
-            id: empId,
-            biometrics: emp.biometrics,
-            registeredPhotos: emp.registeredPhotos
-          };
-        }
-      } else if (path.startsWith('/api/employees/') && method === 'PUT') {
-        action = 'updateEmployee';
-        body = { ...body, id: path.split('/').pop() };
-      } else if (path.startsWith('/api/employees/') && method === 'DELETE') {
-        action = 'deleteEmployee';
-        body = { id: path.split('/').pop() };
-      } else if (path === '/api/attendance' && method === 'GET') {
-        action = 'getAttendance';
-      } else if (path === '/api/attendance' && method === 'POST') {
-        action = 'saveAttendance';
-      } else if (path.startsWith('/api/attendance/') && method === 'PUT') {
-        action = 'updateAttendance';
-        body = { ...body, id: path.split('/').pop() };
-      } else if (path.startsWith('/api/attendance/') && method === 'DELETE') {
-        action = 'deleteAttendance';
-        body = { id: path.split('/').pop() };
-      } else if (path === '/api/photos' && method === 'GET') {
-        action = 'getPhotos';
-      } else if (path === '/api/photos' && method === 'POST') {
-        action = 'savePhotos';
-      } else if (path === '/api/audit-logs' && method === 'GET') {
-        action = 'getAuditLogs';
-      } else if (path === '/api/audit-logs' && method === 'POST') {
-        action = 'saveAuditLog';
-      } else if (path === '/api/config/worksite' && method === 'GET') {
-        action = 'getWorksite';
-      } else if (path === '/api/config/worksite' && method === 'PUT') {
-        action = 'updateWorksite';
-      } else if (path === '/api/auth/login' && method === 'POST') {
-        action = 'login';
-      } else if (path === '/api/auth/password' && method === 'PUT') {
-        action = 'changePassword';
-      }
-
-      if (!action) return null;
-
+    
+    if (isHybrid) {
       if (method === 'GET') {
-        const url = `${API_BASE}?action=${encodeURIComponent(action)}&data=${encodeURIComponent(JSON.stringify(body || {}))}&_t=${Date.now()}`;
-        const res = await fetch(url, {
-          method: 'GET'
-        });
-        return res.ok ? res.json() : null;
+        try {
+          const sbRes = await runSupabase(method, path, body);
+          if (sbRes) return sbRes;
+        } catch (sbErr) {
+          console.warn('[dbService] Supabase hybrid read failed, falling back to Google Sheets:', sbErr);
+        }
+        return await runGoogleSheets(method, path, body);
       } else {
-        const res = await fetch(API_BASE, {
-          method: 'POST',
-          body: JSON.stringify({ action, ...body })
+        // Write to both: Await Supabase (critical path), run Sheets in background (non-blocking)
+        const sbPromise = runSupabase(method, path, body).catch(e => {
+          console.error('[dbService] Hybrid Supabase write failed:', e);
+          return null;
         });
-        return res.ok ? res.json() : null;
+        
+        runGoogleSheets(method, path, body).catch(e => {
+          console.error('[dbService] Hybrid Google Sheets background write failed:', e);
+        });
+        
+        return await sbPromise;
       }
     }
-
-    const res = await fetch(`${API_BASE}${path}`, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-    return res.ok ? res.json() : null;
+    
+    // Default is google-sheets
+    return await runGoogleSheets(method, path, body);
   } catch (e) {
     console.warn('[WorkForce] API call failed:', e);
     return null;
