@@ -413,8 +413,8 @@ function saveBase64ImageToDrive(base64Data, filename) {
     const file = folder.createFile(blob);
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     
-    // 4. Return direct hosting endpoint link for display in html img tags
-    return 'https://lh3.googleusercontent.com/d/' + file.getId();
+    // 4. Return standard clickable sharing link
+    return 'https://drive.google.com/file/d/' + file.getId() + '/view?usp=drivesdk';
   } catch (error) {
     Logger.log("Failed to save image to Drive: " + error.message);
     return base64Data; // Return base64 payload as fallback on failure

@@ -401,6 +401,25 @@ const apiCall = async (method, path, body) => {
   }
 };
 
+const translateDriveUrl = (url) => {
+  if (!url || typeof url !== 'string') return url;
+  if (url.includes('drive.google.com/file/d/')) {
+    const parts = url.split('/d/');
+    if (parts.length > 1) {
+      const fileId = parts[1].split('/')[0];
+      return `https://lh3.googleusercontent.com/d/${fileId}`;
+    }
+  }
+  if (url.includes('drive.google.com/open?id=')) {
+    const parts = url.split('id=');
+    if (parts.length > 1) {
+      const fileId = parts[1].split('&')[0];
+      return `https://lh3.googleusercontent.com/d/${fileId}`;
+    }
+  }
+  return url;
+};
+
 // Pull all server data into localStorage (called on initialize)
 const syncFromServer = async () => {
   if (!API_BASE) return;
@@ -414,6 +433,10 @@ const syncFromServer = async () => {
     ]);
     if (employees) {
       const processedEmployees = employees.map(emp => {
+        if (emp.avatar) emp.avatar = translateDriveUrl(emp.avatar);
+        if (emp.registeredPhotos) {
+          emp.registeredPhotos = emp.registeredPhotos.map(translateDriveUrl);
+        }
         if (!emp.avatar) {
           emp.avatar = (emp.registeredPhotos && emp.registeredPhotos.length > 0) ? emp.registeredPhotos[0] : AVATARS.UNKNOWN;
         }
@@ -425,13 +448,32 @@ const syncFromServer = async () => {
             quality: { blur: 15.0, brightness: 120, contrast: 45, eyeVisible: true, headYaw: 1.0, headPitch: 1.0, isPartial: false, passed: true },
             registeredAt: new Date().toISOString()
           }));
+        } else {
+          emp.samples = emp.samples.map(samp => ({
+            ...samp,
+            avatar: translateDriveUrl(samp.avatar)
+          }));
         }
         return emp;
       });
       localStorage.setItem('wf_employees', JSON.stringify(processedEmployees));
     }
-    if (attendance) localStorage.setItem('wf_attendance',           JSON.stringify(attendance));
-    if (photos)     localStorage.setItem('wf_attendance_photos',    JSON.stringify(photos));
+    if (attendance) {
+      const processedAttendance = attendance.map(att => {
+        if (att.originalPhotoUrl) att.originalPhotoUrl = translateDriveUrl(att.originalPhotoUrl);
+        if (att.croppedFaceUrl) att.croppedFaceUrl = translateDriveUrl(att.croppedFaceUrl);
+        return att;
+      });
+      localStorage.setItem('wf_attendance', JSON.stringify(processedAttendance));
+    }
+    if (photos) {
+      const processedPhotos = photos.map(ph => {
+        if (ph.originalPhoto) ph.originalPhoto = translateDriveUrl(ph.originalPhoto);
+        if (ph.croppedFace) ph.croppedFace = translateDriveUrl(ph.croppedFace);
+        return ph;
+      });
+      localStorage.setItem('wf_attendance_photos', JSON.stringify(processedPhotos));
+    }
     if (auditLogs)  localStorage.setItem('wf_audit_logs',           JSON.stringify(auditLogs));
     if (worksite && worksite.latitude) {
       const ws = { LATITUDE: worksite.latitude, LONGITUDE: worksite.longitude, RADIUS_METERS: worksite.radiusMeters };
