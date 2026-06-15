@@ -13,6 +13,14 @@ const HEADERS = {
 function setup() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   initSheets(ss);
+  
+  // Explicitly reference DriveApp here to force Google's OAuth permission prompt
+  try {
+    DriveApp.getRootFolder();
+  } catch (e) {
+    Logger.log("Drive authorization check: " + e.message);
+  }
+  
   Logger.log("Setup completed. All required sheets created successfully.");
 }
 
