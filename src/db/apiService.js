@@ -19,7 +19,7 @@ const api = async (method, path, body) => {
 // ─── Worksite (loaded once, then cached) ─────────────────────────────────────
 let _worksite = null;
 
-const getWorksite = async () => {
+export const getWorksite = async () => {
   if (!_worksite) {
     _worksite = await api('GET', '/api/config/worksite');
   }

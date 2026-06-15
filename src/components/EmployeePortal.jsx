@@ -1,32 +1,21 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   Camera, 
   MapPin, 
   CheckCircle, 
-  AlertCircle, 
-  HelpCircle,
-  Clock, 
   UserCheck, 
   UserMinus,
-  Video,
   XCircle,
-  Check,
-  Users,
-  ShieldCheck,
   RefreshCw,
   LogOut,
-  User,
   Search,
   Bell,
   Zap,
   ZapOff,
-  X,
   StopCircle
 } from 'lucide-react';
-import { dbService, WORKSITE } from '../db/dbService';
+import { dbService } from '../db/dbService';
 import { 
-  calculateDistanceInMeters, 
-  cropFaceFromCanvas, 
   compareBiometrics, 
   generateBiometrics, 
   recognizeFace, 
@@ -35,16 +24,53 @@ import {
   assessFaceQuality,
   alignAndCropFace,
   calculateMultiFrameLiveness,
-  getFaceDescriptor,
-  extractBiometricsFromCanvas,
   drawImageProp,
   getNormalFrontCameraDeviceId
 } from '../utils/faceEngine';
 
+const generateRandomId = (prefix) => {
+  return prefix + Math.floor(1000 + Math.random() * 9000);
+};
+
 export default function EmployeePortal({ currentUser, onLogout }) {
-  const [employees, setEmployees] = useState([]);
-  const [activeEmployee, setActiveEmployee] = useState(null);
-  const [personalLogs, setPersonalLogs] = useState([]);
+  // ─── Refs ───
+  const rollingFramesRef = useRef([]);
+  const scanLoopActive = useRef(false);
+  const scanTimeoutRef = useRef(null);
+  const isCheckInRef = useRef(true);
+  const activeEmployeeRef = useRef(null);
+  const gpsDataRef = useRef(null);
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const canvasRef = useRef(null);
+  const logCountRef = useRef(0);
+
+  // ─── State Hooks ───
+  const [employees, setEmployees] = useState(() => dbService.getEmployees());
+  const [activeEmployee, setActiveEmployee] = useState(() => {
+    if (currentUser) return currentUser;
+    const savedLoginId = localStorage.getItem('wf_employee_login');
+    if (savedLoginId) {
+      const allEmps = dbService.getEmployees();
+      return allEmps.find(e => e.id === savedLoginId) || null;
+    }
+    return null;
+  });
+  const [personalLogs, setPersonalLogs] = useState(() => {
+    const initialEmp = currentUser || (() => {
+      const savedLoginId = localStorage.getItem('wf_employee_login');
+      if (savedLoginId) {
+        const allEmps = dbService.getEmployees();
+        return allEmps.find(e => e.id === savedLoginId) || null;
+      }
+      return null;
+    })();
+    if (initialEmp) {
+      const allLogs = dbService.getAttendance();
+      return allLogs.filter(a => a.employeeId === initialEmp.id);
+    }
+    return [];
+  });
   const [searchTerm, setSearchTerm] = useState('');
   
   // Camera & Scanner States
@@ -60,30 +86,12 @@ export default function EmployeePortal({ currentUser, onLogout }) {
   const [isTorchOn, setIsTorchOn] = useState(false);
   const [detectedFaces, setDetectedFaces] = useState([]);
   
-  const rollingFramesRef = useRef([]);
-  const scanLoopActive = useRef(false);
-  const scanTimeoutRef = useRef(null);
-  const isCheckInRef = useRef(isCheckIn);
-  const activeEmployeeRef = useRef(activeEmployee);
-
-
-
-  useEffect(() => {
-    return () => {
-      scanLoopActive.current = false;
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-      }
-    };
-  }, []);
-  
   // Live Notifications
   const [toastMessage, setToastMessage] = useState(null);
   
   // GPS State
   const [gpsData, setGpsData] = useState(null);
   const [gpsLoading, setGpsLoading] = useState(false);
-  const gpsDataRef = useRef(null);
 
   // Change Password States
   const [currentPassword, setCurrentPassword] = useState('');
@@ -92,102 +100,7 @@ export default function EmployeePortal({ currentUser, onLogout }) {
   const [passwordSuccessMsg, setPasswordSuccessMsg] = useState('');
   const [passwordErrorMsg, setPasswordErrorMsg] = useState('');
 
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
-  const canvasRef = useRef(null);
-  const logCountRef = useRef(0);
 
-  useEffect(() => {
-    gpsDataRef.current = gpsData;
-  }, [gpsData]);
-
-  useEffect(() => {
-    isCheckInRef.current = isCheckIn;
-  }, [isCheckIn]);
-
-  useEffect(() => {
-    activeEmployeeRef.current = activeEmployee;
-  }, [activeEmployee]);
-
-  useEffect(() => {
-    // Hydrate active profiles and logs
-    const allEmps = dbService.getEmployees();
-    setEmployees(allEmps);
-
-    if (currentUser) {
-      setActiveEmployee(currentUser);
-    } else {
-      const savedLoginId = localStorage.getItem('wf_employee_login');
-      if (savedLoginId) {
-        const matched = allEmps.find(e => e.id === savedLoginId);
-        if (matched) {
-          setActiveEmployee(matched);
-        }
-      }
-    }
-
-    // Pre-load deep learning face-api models
-    loadFaceApiModels().catch(err => {
-      console.error('Failed to pre-load face-api models:', err);
-    });
-
-    fetchLocation();
-
-    return () => {
-      handleStopCamera();
-    };
-  }, [currentUser]);
-
-  // Update logs when activeEmployee changes, and start live sync polling
-  useEffect(() => {
-    if (!activeEmployee) {
-      setPersonalLogs([]);
-      return;
-    }
-
-    const refreshLogs = async () => {
-      await dbService.syncFromServer();
-      const allLogs = dbService.getAttendance();
-      const filtered = allLogs.filter(a => a.employeeId === activeEmployee.id);
-      
-      setPersonalLogs(prev => {
-        // If the log count increases or values update, let the employee know!
-        if (logCountRef.current > 0 && filtered.length > logCountRef.current) {
-          // Find the newly added log
-          const latest = filtered[filtered.length - 1];
-          showToast(`Attendance marked! Status: ${latest.verificationStatus} (${latest.attendanceStatus})`);
-        } else if (logCountRef.current > 0) {
-          // Check if any status updated from "Verification Required" to "Approved"
-          filtered.forEach(currentLog => {
-            const prevLog = prev.find(p => p.id === currentLog.id);
-            if (prevLog && prevLog.verificationStatus !== currentLog.verificationStatus) {
-              showToast(`Log ${currentLog.id} status updated to ${currentLog.verificationStatus}!`);
-            }
-          });
-        }
-        logCountRef.current = filtered.length;
-        return filtered;
-      });
-    };
-
-    refreshLogs();
-
-    // 1. Live Sync Poller: checks every 2 seconds
-    const interval = setInterval(refreshLogs, 2000);
-
-    // 2. Storage Event Listener: syncs cross-tab updates instantly
-    const handleStorageChange = (e) => {
-      if (e.key === 'wf_attendance' || e.key === null) {
-        refreshLogs();
-      }
-    };
-    window.addEventListener('storage', handleStorageChange);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('storage', handleStorageChange);
-    };
-  }, [activeEmployee]);
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -416,6 +329,104 @@ export default function EmployeePortal({ currentUser, onLogout }) {
       console.error("Failed to toggle torch:", err);
     }
   };
+  useEffect(() => {
+    gpsDataRef.current = gpsData;
+  }, [gpsData]);
+
+  useEffect(() => {
+    isCheckInRef.current = isCheckIn;
+  }, [isCheckIn]);
+
+  useEffect(() => {
+    activeEmployeeRef.current = activeEmployee;
+  }, [activeEmployee]);
+
+  useEffect(() => {
+    if (currentUser) {
+      Promise.resolve().then(() => {
+        setActiveEmployee(currentUser);
+      });
+    } else {
+      const allEmps = dbService.getEmployees();
+      const savedLoginId = localStorage.getItem('wf_employee_login');
+      if (savedLoginId) {
+        const matched = allEmps.find(e => e.id === savedLoginId);
+        if (matched) {
+          Promise.resolve().then(() => {
+            setActiveEmployee(matched);
+          });
+        }
+      }
+    }
+
+    // Pre-load deep learning face-api models
+    loadFaceApiModels().catch(err => {
+      console.error('Failed to pre-load face-api models:', err);
+    });
+
+    Promise.resolve().then(() => {
+      fetchLocation();
+    });
+
+    return () => {
+      handleStopCamera();
+    };
+  }, [currentUser]);
+
+  // Update logs when activeEmployee changes, and start live sync polling
+  useEffect(() => {
+    if (!activeEmployee) {
+      Promise.resolve().then(() => {
+        setPersonalLogs(prev => prev.length > 0 ? [] : prev);
+      });
+      return;
+    }
+
+    const refreshLogs = async () => {
+      await dbService.syncFromServer();
+      const allLogs = dbService.getAttendance();
+      const filtered = allLogs.filter(a => a.employeeId === activeEmployee.id);
+      
+      setPersonalLogs(prev => {
+        // If the log count increases or values update, let the employee know!
+        if (logCountRef.current > 0 && filtered.length > logCountRef.current) {
+          // Find the newly added log
+          const latest = filtered[filtered.length - 1];
+          showToast(`Attendance marked! Status: ${latest.verificationStatus} (${latest.attendanceStatus})`);
+        } else if (logCountRef.current > 0) {
+          // Check if any status updated from "Verification Required" to "Approved"
+          filtered.forEach(currentLog => {
+            const prevLog = prev.find(p => p.id === currentLog.id);
+            if (prevLog && prevLog.verificationStatus !== currentLog.verificationStatus) {
+              showToast(`Log ${currentLog.id} status updated to ${currentLog.verificationStatus}!`);
+            }
+          });
+        }
+        logCountRef.current = filtered.length;
+        return filtered;
+      });
+      // Also keep the employees list updated in case it changed
+      setEmployees(dbService.getEmployees());
+    };
+
+    refreshLogs();
+
+    // 1. Live Sync Poller: checks every 2 seconds
+    const interval = setInterval(refreshLogs, 2000);
+
+    // 2. Storage Event Listener: syncs cross-tab updates instantly
+    const handleStorageChange = (e) => {
+      if (e.key === 'wf_attendance' || e.key === null) {
+        refreshLogs();
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [activeEmployee]);
 
   const runAutoScanLoop = async () => {
     if (!scanLoopActive.current || !videoRef.current || !canvasRef.current || !activeEmployeeRef.current) {
@@ -442,7 +453,7 @@ export default function EmployeePortal({ currentUser, onLogout }) {
 
     try {
       const logs = dbService.getAttendance();
-      const employeesDb = dbService.getEmployees();
+
 
       // Detect faces in the new frame canvas
       const newDetections = await detectFacesInCanvas(frameCanvas);
@@ -656,15 +667,9 @@ export default function EmployeePortal({ currentUser, onLogout }) {
             handleStopCamera();
 
             const gpsStatus = gpsDataRef.current ? gpsDataRef.current.status : 'GPS Unavailable';
-            let resolutionStatus = 'Approved';
-            if (status === 'Manual Review') {
-              resolutionStatus = 'Verification Required';
-            }
-
-            const today = new Date().toDateString();
-
+            const resolutionStatus = status === 'Manual Review' ? 'Verification Required' : 'Approved';
             if (isCheckInRef.current) {
-              const attId = 'ATT' + Math.floor(1000 + Math.random() * 9000);
+              const attId = generateRandomId('ATT');
               const record = {
                 id: attId,
                 employeeId: activeEmployeeRef.current.id,
@@ -686,7 +691,7 @@ export default function EmployeePortal({ currentUser, onLogout }) {
               const res = dbService.saveAttendance(record);
               if (res.success) {
                 dbService.savePhotos({
-                  id: 'PH' + Math.floor(1000 + Math.random() * 9000),
+                  id: generateRandomId('PH'),
                   attendanceId: attId,
                   originalPhoto: photoBase64,
                   croppedFace: matchedFace.avatar,

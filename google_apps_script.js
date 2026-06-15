@@ -1,6 +1,7 @@
 // Google Apps Script Backend for WorkForce Attendance
 // Deploy this as a Web App: Execute as "Me", Access: "Anyone".
 const SPREADSHEET_ID = '1tBWz2uM_KDa09n0pOTMri99nfEjhwLpDJWGuGddFtt8'; // Paste your Google Spreadsheet ID here (found in your Google Sheet URL)
+const DRIVE_FOLDER_ID = '1nZMJ1PuI13WkhJkjlTsakF655i8QOuav'; // Paste your Google Drive Folder ID here to save photos to a specific folder
 
 const HEADERS = {
   Employees: ['id', 'name', 'designation', 'department', 'mobile', 'joinDate', 'status', 'role', 'password', 'registeredPhotos', 'biometrics'],
@@ -26,9 +27,27 @@ function processAction(payload) {
       result = readSheet(ss.getSheetByName('Employees'), HEADERS.Employees);
       break;
     case 'saveEmployee':
+      if (payload.registeredPhotos && Array.isArray(payload.registeredPhotos)) {
+        payload.registeredPhotos = payload.registeredPhotos.map((photo, index) => {
+          if (typeof photo === 'string' && photo.startsWith('data:image')) {
+            const filename = 'emp_' + (payload.id || 'new') + '_photo_' + index + '.jpg';
+            return saveBase64ImageToDrive(photo, filename);
+          }
+          return photo;
+        });
+      }
       result = saveRow(ss.getSheetByName('Employees'), HEADERS.Employees, payload);
       break;
     case 'updateEmployee':
+      if (payload.registeredPhotos && Array.isArray(payload.registeredPhotos)) {
+        payload.registeredPhotos = payload.registeredPhotos.map((photo, index) => {
+          if (typeof photo === 'string' && photo.startsWith('data:image')) {
+            const filename = 'emp_' + (payload.id || 'new') + '_photo_' + index + '.jpg';
+            return saveBase64ImageToDrive(photo, filename);
+          }
+          return photo;
+        });
+      }
       result = updateRow(ss.getSheetByName('Employees'), HEADERS.Employees, payload.id, payload);
       break;
     case 'deleteEmployee':
@@ -47,6 +66,14 @@ function processAction(payload) {
       result = deleteRow(ss.getSheetByName('Attendance'), payload.id);
       break;
     case 'savePhotos':
+      if (payload.originalPhoto && typeof payload.originalPhoto === 'string' && payload.originalPhoto.startsWith('data:image')) {
+        const filename = 'att_' + (payload.attendanceId || 'raw') + '_original_' + Date.now() + '.jpg';
+        payload.originalPhoto = saveBase64ImageToDrive(payload.originalPhoto, filename);
+      }
+      if (payload.croppedFace && typeof payload.croppedFace === 'string' && payload.croppedFace.startsWith('data:image')) {
+        const filename = 'att_' + (payload.attendanceId || 'raw') + '_crop_' + Date.now() + '.jpg';
+        payload.croppedFace = saveBase64ImageToDrive(payload.croppedFace, filename);
+      }
       result = saveRow(ss.getSheetByName('Photos') || createPhotosSheet(ss), ['id', 'attendanceId', 'originalPhoto', 'croppedFace', 'timestamp'], payload);
       break;
     case 'getPhotos':
@@ -338,4 +365,49 @@ function handleChangePassword(ss, payload) {
   
   updateRow(sheet, HEADERS.Employees, emp.id, { password: newPassword });
   return { success: true, employee: { ...emp, password: newPassword } };
+}
+
+// Helper: Save Base64 image payload to Google Drive folder and return direct hosting link
+function saveBase64ImageToDrive(base64Data, filename) {
+  if (!base64Data || typeof base64Data !== 'string' || !base64Data.includes('base64,')) {
+    return base64Data; // Already a URL or not base64
+  }
+  try {
+    const parts = base64Data.split('base64,');
+    const contentType = parts[0].split(':')[1].split(';')[0];
+    const rawData = Utilities.base64Decode(parts[1]);
+    const blob = Utilities.newBlob(rawData, contentType, filename);
+    
+    let folder = null;
+    
+    // 1. Try to open specified folder by constant ID
+    if (typeof DRIVE_FOLDER_ID !== 'undefined' && DRIVE_FOLDER_ID) {
+      try {
+        folder = DriveApp.getFolderById(DRIVE_FOLDER_ID);
+      } catch (err) {
+        Logger.log("Could not find folder by ID: " + err.message + ". Falling back to search by name.");
+      }
+    }
+    
+    // 2. Fallback to name search or creation
+    if (!folder) {
+      const folderName = "WorkForce Attendance Photos";
+      const folders = DriveApp.getFoldersByName(folderName);
+      if (folders.hasNext()) {
+        folder = folders.next();
+      } else {
+        folder = DriveApp.createFolder(folderName);
+      }
+    }
+    
+    // 3. Create the file & set sharing permission so it can be rendered as an img element
+    const file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    
+    // 4. Return direct hosting endpoint link for display in html img tags
+    return 'https://lh3.googleusercontent.com/d/' + file.getId();
+  } catch (error) {
+    Logger.log("Failed to save image to Drive: " + error.message);
+    return base64Data; // Return base64 payload as fallback on failure
+  }
 }

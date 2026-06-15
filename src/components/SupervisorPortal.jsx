@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { 
   Camera, 
   MapPin, 
-  CheckCircle, 
   Clock, 
   UserCheck, 
   UserMinus,
@@ -12,24 +11,20 @@ import {
   Users,
   ShieldCheck,
   RefreshCw,
-  Sliders,
   Zap,
   ZapOff,
-  StopCircle
+  StopCircle,
+  Upload
 } from 'lucide-react';
-import { dbService, WORKSITE } from '../db/dbService';
+import { dbService } from '../db/dbService';
 import { 
-  calculateDistanceInMeters, 
-  compareBiometrics, 
-  generateBiometrics, 
   recognizeFace, 
   detectFacesInCanvas,
   loadFaceApiModels,
-  assessFaceQuality,
-  alignAndCropFace,
-  calculateMultiFrameLiveness,
-  drawImageProp,
-  getNormalFrontCameraDeviceId
+  getNormalFrontCameraDeviceId,
+  cropFaceFromCanvas,
+  trainEmployeeFace,
+  extractBiometricsFromCanvas
 } from '../utils/faceEngine';
 
 const generateRandomId = (prefix) => {
@@ -40,10 +35,9 @@ const generateRandomId = (prefix) => {
 
 
 export default function SupervisorPortal({ currentUser }) {
-  const [employees] = useState(() => dbService.getEmployees());
+  const [employees, setEmployees] = useState(() => dbService.getEmployees());
 
-  // Group Scanner and Manual Entry States
-  const [scannerMode, setScannerMode] = useState('camera'); // 'camera' or 'manual'
+  // Group Scanner States
   const [activeShiftEmployees, setActiveShiftEmployees] = useState(() => {
     const attendance = dbService.getAttendance();
     const today = new Date().toDateString();
@@ -53,17 +47,22 @@ export default function SupervisorPortal({ currentUser }) {
       a.employeeId !== 'UNKNOWN'
     );
   });
-  const [sessionLogged, setSessionLogged] = useState([]);
-  const [latestCaptureMsg, setLatestCaptureMsg] = useState('');
-  const [showDiagnostics, setShowDiagnostics] = useState({});
-  const sessionLoggedIds = useRef(new Set());
 
-  // Manual override states
-  const [manualEmpId, setManualEmpId] = useState('');
-  const [manualType, setManualType] = useState('checkin');
-  const [manualTime, setManualTime] = useState(new Date().toISOString().slice(0, 16));
-  const [manualReason, setManualReason] = useState('');
-  const [manualSuccessMsg, setManualSuccessMsg] = useState('');
+
+  // Group photo additional states
+  const [photoDimensions, setPhotoDimensions] = useState({ width: 0, height: 0 });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeCardId, setActiveCardId] = useState(null);
+  const [registeringFaceId, setRegisteringFaceId] = useState(null);
+  const [showSearchFaceId, setShowSearchFaceId] = useState(null);
+  const [newEmpName, setNewEmpName] = useState('');
+  const [newEmpMobile, setNewEmpMobile] = useState('');
+  const [newEmpId, setNewEmpId] = useState('');
+  const [newEmpDept, setNewEmpDept] = useState('General');
+  const [newEmpDesig, setNewEmpDesig] = useState('Staff');
+  const [newEmpError, setNewEmpError] = useState('');
+
+
 
   const updateActiveShift = () => {
     const attendance = dbService.getAttendance();
@@ -181,23 +180,20 @@ export default function SupervisorPortal({ currentUser }) {
   const [isGroupCheckIn, setIsGroupCheckIn] = useState(true);
   const [isGroupCameraActive, setIsGroupCameraActive] = useState(false);
   const [groupScanImage, setGroupScanImage] = useState(null);
+  const [groupFacingMode, setGroupFacingMode] = useState('environment');
+  const [groupErrorMsg, setGroupErrorMsg] = useState('');
   const [groupDetectedFaces, setGroupDetectedFaces] = useState([]);
   const [groupSuccessCount, setGroupSuccessCount] = useState(null);
-  const [groupFacingMode, setGroupFacingMode] = useState('user');
-  const [groupScanStatusMsg, setGroupScanStatusMsg] = useState('Position face in the viewfinder...');
   const [isGroupScanning, setIsGroupScanning] = useState(false);
-  const [groupErrorMsg, setGroupErrorMsg] = useState('');
+  const [groupScanStatusMsg, setGroupScanStatusMsg] = useState('');
   const [groupHasTorch, setGroupHasTorch] = useState(false);
-
   const [groupIsTorchOn, setGroupIsTorchOn] = useState(false);
-  
-  const groupVideoRef = useRef(null);
-  const groupStreamRef = useRef(null);
-  const groupCanvasRef = useRef(null);
+
   const groupRollingFramesRef = useRef([]);
+  const groupStreamRef = useRef(null);
+  const groupVideoRef = useRef(null);
+  const groupCanvasRef = useRef(null);
   const groupScanLoopActive = useRef(false);
-  const isGroupCheckInRef = useRef(isGroupCheckIn);
-  useEffect(() => { isGroupCheckInRef.current = isGroupCheckIn; }, [isGroupCheckIn]);
 
   const startGroupCamera = async (currentFacingMode = groupFacingMode) => {
     try {
@@ -205,12 +201,9 @@ export default function SupervisorPortal({ currentUser }) {
       setGroupScanImage(null);
       setGroupDetectedFaces([]);
       setGroupSuccessCount(null);
-      setSessionLogged([]);
-      setLatestCaptureMsg('');
-      sessionLoggedIds.current = new Set();
       setIsGroupCameraActive(true);
-      setIsGroupScanning(true);
-      setGroupScanStatusMsg('Initializing webcam...');
+      setIsGroupScanning(false);
+      setGroupScanStatusMsg('Webcam stream active');
       groupRollingFramesRef.current = [];
 
       const constraints = {
@@ -250,11 +243,6 @@ export default function SupervisorPortal({ currentUser }) {
 
       if (groupVideoRef.current) {
         groupVideoRef.current.srcObject = stream;
-        groupVideoRef.current.onplay = () => {
-          groupScanLoopActive.current = true;
-          setGroupScanStatusMsg('Aligning camera... position face in view');
-          runGroupAutoScanLoop();
-        };
         groupVideoRef.current.play();
       }
     } catch (error) {
@@ -288,7 +276,6 @@ export default function SupervisorPortal({ currentUser }) {
     });
     
     return () => {
-      // Safety stop of cameras on unmount
       stopGroupCamera();
     };
   }, []);
@@ -297,6 +284,7 @@ export default function SupervisorPortal({ currentUser }) {
     const syncData = async () => {
       await dbService.syncFromServer();
       updateActiveShift();
+      setEmployees(dbService.getEmployees());
     };
     
     syncData();
@@ -329,469 +317,386 @@ export default function SupervisorPortal({ currentUser }) {
     }
   };
 
-  const runGroupAutoScanLoop = async () => {
-    if (!groupScanLoopActive.current || !groupVideoRef.current || !groupCanvasRef.current) {
-      return;
-    }
-
+  // Group Photo Snapshot capture handler
+  const captureGroupSnapshot = async () => {
+    if (!groupVideoRef.current || !groupCanvasRef.current) return;
     const video = groupVideoRef.current;
     const canvas = groupCanvasRef.current;
     const ctx = canvas.getContext('2d');
-
-    if (video.videoWidth === 0 || video.videoHeight === 0) {
-      setTimeout(runGroupAutoScanLoop, 150);
-      return;
-    }
-
-    const isMobile = window.innerWidth < 768;
-    const targetW = isMobile ? 450 : 800;
-    const targetH = isMobile ? 600 : 450;
+    
+    if (video.videoWidth === 0 || video.videoHeight === 0) return;
+    
+    const targetW = video.videoWidth;
+    const targetH = video.videoHeight;
     canvas.width = targetW;
     canvas.height = targetH;
-    drawImageProp(ctx, video, 0, 0, targetW, targetH);
+    
+    // Draw current frame (with mirror correction for user facing camera)
+    ctx.save();
+    if (groupFacingMode === 'user') {
+      ctx.translate(targetW, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.drawImage(video, 0, 0, targetW, targetH);
+    ctx.restore();
+    
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+    setGroupScanImage(dataUrl);
+    setPhotoDimensions({ width: targetW, height: targetH });
+    
+    stopGroupCamera();
+    await processGroupPhoto(canvas);
+  };
 
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = targetW;
-    tempCanvas.height = targetH;
-    tempCanvas.getContext('2d').drawImage(canvas, 0, 0);
+  // Group Photo upload handler
+  const handleGroupPhotoUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    setGroupErrorMsg('');
+    setGroupSuccessCount(null);
+    setGroupDetectedFaces([]);
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = async () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        
+        const dataUrl = event.target.result;
+        setGroupScanImage(dataUrl);
+        setPhotoDimensions({ width: img.width, height: img.height });
+        
+        await processGroupPhoto(canvas);
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Core processing pipeline: Face detection & Recognition
+  const processGroupPhoto = async (canvas) => {
+    setIsGroupScanning(true);
+    setGroupScanStatusMsg('Running face detection neural network...');
+    setGroupErrorMsg('');
     try {
-      const newDetections = await detectFacesInCanvas(tempCanvas);
-      groupRollingFramesRef.current.push({ canvas: tempCanvas, detections: newDetections });
-      if (groupRollingFramesRef.current.length > 5) {
-        groupRollingFramesRef.current.shift();
+      await loadFaceApiModels();
+      const newDetections = await detectFacesInCanvas(canvas);
+      
+      const hasRealDetections = newDetections && newDetections.length > 0 && newDetections[0].descriptor !== null;
+      
+      if (!hasRealDetections) {
+        setGroupDetectedFaces([]);
+        setGroupErrorMsg('No faces detected in the image. Please retake the photo or upload a clearer group image.');
+        setIsGroupScanning(false);
+        return;
       }
-
+      
+      setGroupScanStatusMsg(`Running ArcFace facial recognition on ${newDetections.length} faces...`);
       const employeesDb = dbService.getEmployees();
-      const logs = dbService.getAttendance();
-
-      const allFramesDetections = groupRollingFramesRef.current.map(f => f.detections);
-
-      const tracks = [];
-      allFramesDetections.forEach((detectionsInFrame, frameIdx) => {
-        detectionsInFrame.forEach(det => {
-          if (det.descriptor === null) return;
-          let matchedTrackIdx = -1;
-          let minCenterDist = 60;
-          const detCenter = {
-            x: det.box.x + det.box.w / 2,
-            y: det.box.y + det.box.h / 2
-          };
-          tracks.forEach((track, trackIdx) => {
-            const lastDet = track[track.length - 1];
-            const lastCenter = {
-              x: lastDet.box.x + lastDet.box.w / 2,
-              y: lastDet.box.y + lastDet.box.h / 2
-            };
-            const dist = Math.sqrt(Math.pow(detCenter.x - lastCenter.x, 2) + Math.pow(detCenter.y - lastCenter.y, 2));
-            if (dist < minCenterDist) {
-              minCenterDist = dist;
-              matchedTrackIdx = trackIdx;
-            }
-          });
-          if (matchedTrackIdx !== -1) {
-            tracks[matchedTrackIdx].push({ ...det, frameIdx });
-          } else {
-            tracks.push([{ ...det, frameIdx }]);
-          }
-        });
-      });
-
-      const resolvedFaces = await Promise.all(tracks.map(async (track, idx) => {
-        const recognitions = await Promise.all(track.map(async (det) => {
-          const rec = await recognizeFace(det.descriptor, employeesDb);
-          return { rec, det };
-        }));
-
-        const qualityDetails = track.map((det) => {
-          const frameCanvas = groupRollingFramesRef.current[det.frameIdx].canvas;
-          return assessFaceQuality(frameCanvas, det.box, det.landmarks);
-        });
-
-        const matchCounts = {};
-        recognitions.forEach(r => {
-          const id = r.rec.matchedEmp ? r.rec.matchedEmp.id : 'UNKNOWN';
-          matchCounts[id] = (matchCounts[id] || 0) + 1;
-        });
-
-        let consensusEmpId = 'UNKNOWN';
-        let maxCount = 0;
-        Object.keys(matchCounts).forEach(id => {
-          if (matchCounts[id] > maxCount) {
-            maxCount = matchCounts[id];
-            consensusEmpId = id;
-          }
-        });
-
-        const matchedEmp = employeesDb.find(e => e.id === consensusEmpId) || null;
-        const consensusRecs = recognitions.filter(r => (r.rec.matchedEmp ? r.rec.matchedEmp.id : 'UNKNOWN') === consensusEmpId);
-        const avgSimilarity = consensusRecs.reduce((a, b) => a + (b.rec.confidence || 30), 0) / consensusRecs.length;
-
-        const framesLivenessData = qualityDetails.map((q) => ({
-          ear: (q.leftEAR !== undefined && q.rightEAR !== undefined) ? (q.leftEAR + q.rightEAR) / 2 : 0.3,
-          yaw: q.yaw || 1.0,
-          passiveLiveness: q.passiveLiveness || 95
-        }));
-
-        const livenessResult = calculateMultiFrameLiveness(framesLivenessData);
-        const avgQualityVal = qualityDetails.reduce((sum, q) => {
-          let score = 95;
-          if (q.blur < 12) score -= 15;
-          if (q.contrast < 25) score -= 15;
-          if (q.brightness < 60 || q.brightness > 190) score -= 15;
-          return sum + Math.max(20, score);
-        }, 0) / qualityDetails.length;
-
-        const avgQuality = Math.round(avgQualityVal);
-        const livenessScore = livenessResult.livenessScore;
-
-        let finalScore = Math.round(0.6 * avgSimilarity + 0.2 * livenessScore + 0.2 * avgQuality);
-        if (livenessResult.spoofDetected) {
-          finalScore = Math.min(finalScore, 40);
-        }
-
-        let status = 'Unregistered Person';
-        const today = new Date().toDateString();
-        const alreadyCheckedIn = matchedEmp && logs.some(a => 
-          a.employeeId === matchedEmp.id && 
-          new Date(a.checkInTime).toDateString() === today
-        );
-        const alreadyCheckedOut = matchedEmp && logs.some(a => 
-          a.employeeId === matchedEmp.id && 
-          new Date(a.checkInTime).toDateString() === today &&
-          a.checkOutTime !== null
-        );
-
+      
+      const resolved = await Promise.all(newDetections.map(async (det, idx) => {
+        const rec = await recognizeFace(det.descriptor, employeesDb);
+        const finalScore = rec.matchedEmp ? rec.confidence : 0;
+        let matchedEmp = rec.matchedEmp;
+        
+        let status = 'Unknown';
         if (matchedEmp) {
-          if (isGroupCheckInRef.current && alreadyCheckedIn) {
-            status = 'Already Checked In';
-          } else if (!isGroupCheckInRef.current && !alreadyCheckedIn) {
-            status = 'No Active Check-In';
-          } else if (!isGroupCheckInRef.current && alreadyCheckedOut) {
-            status = 'Already Checked Out';
-          } else if (finalScore >= 75) {
-            // Register success if EITHER blink OR motion (nod/head turn) is detected
-            if (livenessResult.blinkDetected || livenessResult.motionDetected) {
-              status = 'Recognized';
-            } else {
-              status = 'Blink Required';
-            }
-          } else if (finalScore >= 60) {
-            status = 'Manual Review';
+          if (finalScore >= 90) {
+            status = 'Recognized';
+          } else if (finalScore >= 70) {
+            status = 'Possible Match';
+          } else {
+            status = 'Unknown';
+            matchedEmp = null;
           }
         }
-
-        let bestFrameIdx = 0;
-        let highestContrast = -1;
-        qualityDetails.forEach((q, fIdx) => {
-          if (q.contrast > highestContrast) {
-            highestContrast = q.contrast;
-            bestFrameIdx = fIdx;
-          }
-        });
-
-        const bestDet = track[bestFrameIdx];
-        const bestFrameCanvas = groupRollingFramesRef.current[bestDet.frameIdx].canvas;
-        const alignedCanvas = alignAndCropFace(bestFrameCanvas, bestDet.landmarks);
-        const avatarBase64 = alignedCanvas.toDataURL('image/jpeg', 0.85);
-
+        
+        const faceCropBase64 = cropFaceFromCanvas(canvas, det.box);
+        
         return {
           id: `F${idx + 1}`,
-          name: matchedEmp ? matchedEmp.name : 'Unidentified Face',
-          empId: matchedEmp ? matchedEmp.id : 'UNKNOWN',
+          box: det.box,
+          descriptor: det.descriptor,
+          landmarks: det.landmarks,
+          avatar: faceCropBase64,
+          matchedEmp,
           confidence: finalScore,
           status,
-          box: bestDet.box,
-          avatar: avatarBase64,
-          qualityScore: avgQuality,
-          livenessScore: livenessScore,
-          similarityScore: Math.round(avgSimilarity),
-          blinkDetected: livenessResult.blinkDetected,
-          motionDetected: livenessResult.motionDetected,
-          biometricsReport: consensusRecs[0]?.rec.report || compareBiometrics(generateBiometrics('Unknown Face', true), generateBiometrics('Unknown Face', true))
+          approved: status === 'Recognized',
+          rejected: false,
+          overrideEmp: null
         };
       }));
-
-      setGroupDetectedFaces(resolvedFaces);
-      autoLogRecognizedFaces(resolvedFaces);
-      setGroupScanStatusMsg(`Scanning active... recognized ${resolvedFaces.filter(r => r.empId !== 'UNKNOWN').length} members`);
-      setTimeout(runGroupAutoScanLoop, 500);
+      
+      setGroupDetectedFaces(resolved);
+      setIsGroupScanning(false);
     } catch (err) {
       console.error(err);
-      setTimeout(runGroupAutoScanLoop, 500);
+      setGroupErrorMsg('An error occurred during facial recognition processing.');
+      setIsGroupScanning(false);
     }
   };
 
-  const autoLogRecognizedFaces = (faces) => {
-    if (!faces || faces.length === 0) return;
+  const handleAssignEmployee = (faceId, emp) => {
+    setGroupDetectedFaces(prev => prev.map(f => {
+      if (f.id === faceId) {
+        return {
+          ...f,
+          matchedEmp: emp,
+          overrideEmp: emp,
+          status: 'Recognized',
+          confidence: 99,
+          approved: true,
+          rejected: false
+        };
+      }
+      return f;
+    }));
+  };
 
-    const logs = dbService.getAttendance();
-    const gpsStatus = gpsData ? gpsData.status : 'GPS Unavailable';
+  const handleRegisterNewEmployee = async (e) => {
+    e.preventDefault();
+    setNewEmpError('');
+    
+    if (!newEmpName.trim()) {
+      setNewEmpError('Full Name is required.');
+      return;
+    }
+    if (!newEmpMobile.trim()) {
+      setNewEmpError('Mobile Number is required.');
+      return;
+    }
+    
+    const targetFace = groupDetectedFaces.find(f => f.id === registeringFaceId);
+    if (!targetFace) return;
+    
+    const trimmedId = newEmpId.trim() || 'EMP' + Math.floor(100 + Math.random() * 900);
+    const existingEmployees = dbService.getEmployees();
+    
+    if (existingEmployees.some(emp => emp.id === trimmedId)) {
+      setNewEmpError('Employee ID already exists.');
+      return;
+    }
+    if (existingEmployees.some(emp => emp.mobile === newEmpMobile.trim())) {
+      setNewEmpError('Mobile number already registered to another profile.');
+      return;
+    }
+    if (existingEmployees.some(emp => emp.name.toLowerCase() === newEmpName.trim().toLowerCase())) {
+      setNewEmpError('An employee with this name already exists.');
+      return;
+    }
+    
+    try {
+      const croppedCanvas = document.createElement('canvas');
+      croppedCanvas.width = 112;
+      croppedCanvas.height = 112;
+      const img = new Image();
+      
+      const loadImgPromise = new Promise((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('Failed to load face crop'));
+        img.src = targetFace.avatar;
+      });
+      await loadImgPromise;
+      
+      croppedCanvas.getContext('2d').drawImage(img, 0, 0, 112, 112);
+      const capBio = extractBiometricsFromCanvas(croppedCanvas);
+      const trainedBiometrics = trainEmployeeFace([targetFace.descriptor], [capBio]);
+      
+      const newEmployee = {
+        id: trimmedId,
+        name: newEmpName.trim(),
+        mobile: newEmpMobile.trim(),
+        department: newEmpDept,
+        designation: newEmpDesig,
+        password: '123456',
+        role: 'employee',
+        avatar: targetFace.avatar,
+        registeredPhotos: [targetFace.avatar],
+        biometrics: trainedBiometrics,
+        samples: [{
+          id: `SAMP_${trimmedId}_1`,
+          vector: targetFace.descriptor,
+          avatar: targetFace.avatar,
+          quality: { blur: 15, brightness: 120, contrast: 50, eyeVisible: true, headYaw: 1.0, headPitch: 1.0, isPartial: false, passed: true },
+          registeredAt: new Date().toISOString()
+        }],
+        registeredAt: new Date().toISOString()
+      };
+      
+      const res = dbService.saveEmployee(newEmployee);
+      if (!res.success) {
+        setNewEmpError(res.error || 'Failed to save employee.');
+        return;
+      }
+      
+      dbService.logAction(
+        'Inline Employee Registration',
+        currentUser.name,
+        null,
+        JSON.stringify({ id: trimmedId, name: newEmployee.name }),
+        `Registered new employee ${newEmployee.name} (${trimmedId}) inline during attendance group photo marking.`
+      );
+      
+      setEmployees(dbService.getEmployees());
+      
+      setGroupDetectedFaces(prev => prev.map(f => {
+        if (f.id === registeringFaceId) {
+          return {
+            ...f,
+            matchedEmp: newEmployee,
+            status: 'Recognized',
+            confidence: 99,
+            approved: true,
+            rejected: false
+          };
+        }
+        return f;
+      }));
+      
+      setRegisteringFaceId(null);
+      setNewEmpName('');
+      setNewEmpMobile('');
+      setNewEmpId('');
+      setNewEmpDept('General');
+      setNewEmpDesig('Staff');
+    } catch (err) {
+      console.error(err);
+      setNewEmpError('Error generating biometrics or registering employee.');
+    }
+  };
+
+
+
+  const handleFinalizeAttendance = async () => {
+    setGroupErrorMsg('');
+    
+    const approvedFaces = groupDetectedFaces.filter(f => f.approved && (f.matchedEmp || f.overrideEmp));
+    
+    if (approvedFaces.length === 0) {
+      setGroupErrorMsg('No approved employee attendance records selected to submit.');
+      return;
+    }
+    
+    setIsSubmitting(true);
+    
     const today = new Date().toDateString();
-    let loggedSomething = false;
-
-    faces.forEach(f => {
-      if (f.empId === 'UNKNOWN' || 
-          f.status === 'Unregistered Person' || 
-          f.status === 'Already Checked In' || 
-          f.status === 'Already Checked Out' || 
-          f.status === 'No Active Check-In' ||
-          f.status === 'Blink Required') return;
-
-      if (sessionLoggedIds.current.has(f.empId)) return;
-
+    const gpsStatus = gpsData ? gpsData.status : 'GPS Unavailable';
+    const logs = dbService.getAttendance();
+    
+    let successCount = 0;
+    let duplicateCount = 0;
+    
+    for (const f of approvedFaces) {
+      const emp = f.overrideEmp || f.matchedEmp;
+      
       const alreadyCheckedIn = logs.some(a => 
-        a.employeeId === f.empId && 
+        a.employeeId === emp.id && 
         new Date(a.checkInTime).toDateString() === today
       );
-      const activeCheckIn = logs.find(a => a.employeeId === f.empId && !a.checkOutTime);
-
-      if (isGroupCheckInRef.current) {
+      
+      const activeCheckIn = logs.find(a => a.employeeId === emp.id && !a.checkOutTime);
+      
+      const photoId = generateRandomId('PH');
+      const attId = generateRandomId('ATT');
+      
+      if (isGroupCheckIn) {
         if (alreadyCheckedIn) {
-          sessionLoggedIds.current.add(f.empId);
-          return;
+          duplicateCount++;
+          continue;
         }
-
-        const attId = generateRandomId('ATT');
+        
         const record = {
           id: attId,
-          employeeId: f.empId,
-          employeeName: f.name,
+          employeeId: emp.id,
+          employeeName: emp.name,
+          mobile: emp.mobile,
           checkInTime: new Date().toISOString(),
           checkOutTime: null,
           latitude: gpsData?.lat ? parseFloat(gpsData.lat) : null,
           longitude: gpsData?.lon ? parseFloat(gpsData.lon) : null,
           checkOutLatitude: null,
           checkOutLongitude: null,
-          confidence: f.confidence,
-          qualityScore: f.qualityScore || 92,
-          livenessScore: f.livenessScore || 95,
-          similarityScore: f.similarityScore || f.confidence,
-          verificationStatus: f.status === 'Recognized' ? 'Approved' : 'Verification Required',
-          attendanceStatus: gpsStatus
+          confidence: f.confidence >= 1 ? f.confidence / 100 : f.confidence,
+          qualityScore: 95,
+          livenessScore: 95,
+          similarityScore: f.confidence,
+          verificationStatus: 'Approved',
+          attendanceStatus: gpsStatus,
+          approvedBy: currentUser?.id || 'SUP001',
+          groupPhotoId: photoId
         };
-
+        
         const res = dbService.saveAttendance(record);
         if (res.success) {
           dbService.savePhotos({
-            id: generateRandomId('PH'),
+            id: photoId,
             attendanceId: attId,
-            originalPhoto: groupScanImage || f.avatar,
+            originalPhoto: groupScanImage,
             croppedFace: f.avatar,
             timestamp: new Date().toISOString()
           });
-          
-          sessionLoggedIds.current.add(f.empId);
-          setSessionLogged(prev => [
-            { 
-              ...f, 
-              loggedAt: new Date().toLocaleTimeString(), 
-              logType: 'Clock In',
-              logId: attId
-            }, 
-            ...prev
-          ]);
-          
-          const msg = `✓ Attendance captured: ${f.name} (Clocked In)`;
-          setLatestCaptureMsg(msg);
-          loggedSomething = true;
-
-          setTimeout(() => {
-            setLatestCaptureMsg(curr => {
-              if (curr === msg) return '';
-              return curr;
-            });
-          }, 4000);
+          successCount++;
         }
       } else {
         if (!activeCheckIn) {
-          sessionLoggedIds.current.add(f.empId);
-          return;
+          duplicateCount++;
+          continue;
         }
-
+        
         const res = dbService.updateAttendance(activeCheckIn.id, {
           checkOutTime: new Date().toISOString(),
-          confidence: Math.round((activeCheckIn.confidence + f.confidence) / 2), 
+          confidence: Math.round((activeCheckIn.confidence + f.confidence) / 2),
           attendanceStatus: gpsStatus,
           checkOutLatitude: gpsData?.lat ? parseFloat(gpsData.lat) : null,
-          checkOutLongitude: gpsData?.lon ? parseFloat(gpsData.lon) : null
+          checkOutLongitude: gpsData?.lon ? parseFloat(gpsData.lon) : null,
+          approvedBy: currentUser?.id || 'SUP001',
+          groupPhotoId: photoId
         });
         
         if (res.success) {
-          sessionLoggedIds.current.add(f.empId);
-          setSessionLogged(prev => [
-            { 
-              ...f, 
-              loggedAt: new Date().toLocaleTimeString(), 
-              logType: 'Clock Out',
-              logId: activeCheckIn.id
-            }, 
-            ...prev
-          ]);
-          
-          const msg = `✓ Attendance captured: ${f.name} (Clocked Out)`;
-          setLatestCaptureMsg(msg);
-          loggedSomething = true;
-
-          setTimeout(() => {
-            setLatestCaptureMsg(curr => {
-              if (curr === msg) return '';
-              return curr;
-            });
-          }, 4000);
+          dbService.savePhotos({
+            id: photoId,
+            attendanceId: activeCheckIn.id,
+            originalPhoto: groupScanImage,
+            croppedFace: f.avatar,
+            timestamp: new Date().toISOString()
+          });
+          successCount++;
         }
       }
-    });
-
-    if (loggedSomething) {
-      updateActiveShift();
-    }
-  };
-
-
-
-  const handleOverrideEmployeeId = (faceId, empId) => {
-    const updated = groupDetectedFaces.map(f => {
-      if (f.id === faceId) {
-        const emp = employees.find(e => e.id === empId);
-        if (emp) {
-          const report = compareBiometrics(emp.biometrics, generateBiometrics(emp.name, false));
-          return {
-            ...f,
-            empId: emp.id,
-            name: emp.name,
-            status: 'Recognized',
-            confidence: 99,
-            biometricsReport: report,
-            isOverride: true
-          };
-        } else if (empId === 'UNKNOWN') {
-          return {
-            ...f,
-            empId: 'UNKNOWN',
-            name: 'Unidentified Face',
-            status: 'Unregistered Person',
-            confidence: 30,
-            biometricsReport: null,
-            isOverride: false
-          };
-        }
-      }
-      return f;
-    });
-    setGroupDetectedFaces(updated);
-    if (isGroupCameraActive) {
-      autoLogRecognizedFaces(updated);
-    }
-  };
-
-  const toggleDiagnostics = (faceId) => {
-    setShowDiagnostics(prev => ({
-      ...prev,
-      [faceId]: !prev[faceId]
-    }));
-  };
-
-  const handleManualOverrideSubmit = (e) => {
-    e.preventDefault();
-    setGroupErrorMsg('');
-    setManualSuccessMsg('');
-    
-    if (!manualEmpId) {
-      setGroupErrorMsg('Please select an employee profile to override.');
-      return;
     }
     
-    const targetEmp = employees.find(e => e.id === manualEmpId);
-    if (!targetEmp) return;
+    dbService.logAction(
+      'Group Photo Attendance Processing',
+      currentUser.name,
+      null,
+      JSON.stringify({
+        totalFacesDetected: groupDetectedFaces.length,
+        approvedCount: approvedFaces.length,
+        loggedCount: successCount,
+        skippedDuplicates: duplicateCount,
+        clockMode: isGroupCheckIn ? 'Clock In' : 'Clock Out'
+      }),
+      `Supervisor ${currentUser.name} uploaded group photo, detected ${groupDetectedFaces.length} faces, approved ${approvedFaces.length} attendance marks. Logged ${successCount} successfully, skipped ${duplicateCount} duplicates.`
+    );
     
-    const overrideDate = new Date(manualTime);
-    const today = overrideDate.toDateString();
-    const attendanceLogs = dbService.getAttendance();
-    
-    if (manualType === 'checkin') {
-      const alreadyCheckedIn = attendanceLogs.some(a => 
-        a.employeeId === targetEmp.id && 
-        new Date(a.checkInTime).toDateString() === today
-      );
-      if (alreadyCheckedIn) {
-        setGroupErrorMsg(`Override rejected: ${targetEmp.name} has already checked in on this date.`);
-        return;
-      }
-
-      const attRecord = {
-        id: generateRandomId('ATT'),
-        employeeId: targetEmp.id,
-        employeeName: targetEmp.name,
-        checkInTime: overrideDate.toISOString(),
-        checkOutTime: null,
-        latitude: WORKSITE.LATITUDE,
-        longitude: WORKSITE.LONGITUDE,
-        checkOutLatitude: null,
-        checkOutLongitude: null,
-        confidence: 100, // Manual overrides get 100% confidence credit
-        verificationStatus: 'Verification Required', // Restricted access: Supervisor logs require verification
-        attendanceStatus: 'Valid Location'
-      };
-
-      const res = dbService.saveAttendance(attRecord);
-      if (res.success) {
-        dbService.savePhotos({
-          id: generateRandomId('PH'),
-          attendanceId: attRecord.id,
-          originalPhoto: targetEmp.avatar,
-          croppedFace: targetEmp.avatar,
-          timestamp: new Date().toISOString()
-        });
-
-        dbService.logAction(
-          'Manual Override',
-          currentUser.name,
-          null,
-          JSON.stringify(attRecord),
-          `Supervisor override check-in logged for ${targetEmp.name}. Justification: ${manualReason || 'Supervisor adjustment'}.`
-        );
-
-        setManualSuccessMsg(`Clock-In override successfully logged for ${targetEmp.name}. Requires admin approval.`);
-        setManualReason('');
-      } else {
-        setGroupErrorMsg(res.error);
-      }
-    } else {
-      // Manual Clock-Out
-      const activeCheckIn = attendanceLogs.find(a => a.employeeId === targetEmp.id && !a.checkOutTime);
-      if (!activeCheckIn) {
-        setGroupErrorMsg(`Override rejected: No active shift clock-in found for ${targetEmp.name}.`);
-        return;
-      }
-
-      const oldValue = JSON.stringify(activeCheckIn);
-      const updateFields = {
-        checkOutTime: overrideDate.toISOString(),
-        attendanceStatus: 'Valid Location',
-        verificationStatus: 'Verification Required', // Restricted access
-        checkOutLatitude: WORKSITE.LATITUDE,
-        checkOutLongitude: WORKSITE.LONGITUDE
-      };
-
-      const res = dbService.updateAttendance(activeCheckIn.id, updateFields);
-      if (res.success) {
-        dbService.logAction(
-          'Manual Override',
-          currentUser.name,
-          oldValue,
-          JSON.stringify({ ...activeCheckIn, ...updateFields }),
-          `Supervisor override clock-out logged for ${targetEmp.name}. Justification: ${manualReason || 'Supervisor adjustment'}.`
-        );
-
-        setManualSuccessMsg(`Clock-Out override successfully logged for ${targetEmp.name}. Requires admin approval.`);
-        setManualReason('');
-      } else {
-        setGroupErrorMsg(res.error);
-      }
-    }
-
+    setIsSubmitting(false);
     updateActiveShift();
+    setGroupSuccessCount(successCount);
+    
+    setGroupScanImage(null);
+    setGroupDetectedFaces([]);
   };
+
+
+
+
 
   return (
     <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 md:space-y-6 select-none">
@@ -826,14 +731,6 @@ export default function SupervisorPortal({ currentUser }) {
               setGroupSuccessCount(null);
               setGroupScanImage(null);
               setGroupDetectedFaces([]);
-              setSessionLogged([]);
-              setLatestCaptureMsg('');
-              sessionLoggedIds.current = new Set();
-              setManualEmpId('');
-              setManualType('checkin');
-              setManualTime(new Date().toISOString().slice(0, 16));
-              setManualReason('');
-              setManualSuccessMsg('');
               fetchLocation();
             }}
             className="p-2 bg-dark-900 hover:bg-dark-800 border border-dark-800 text-dark-400 hover:text-white rounded-xl transition cursor-pointer"
@@ -889,28 +786,40 @@ export default function SupervisorPortal({ currentUser }) {
 
         {/* Action Controls Panel */}
         <div className="glass-panel p-5 rounded-2xl border border-dark-800/60 flex items-center justify-between">
-          <div className="space-y-1">
-            <p className="text-[10px] uppercase font-bold text-dark-400">Terminal Mode</p>
-            <div className="flex bg-dark-950 p-1 rounded-xl border border-dark-850 mt-1">
+          <div className="space-y-1 w-full">
+            <p className="text-[10px] uppercase font-bold text-dark-400">Scan Session Action Type</p>
+            <div className="grid grid-cols-2 bg-dark-950 p-1 rounded-xl border border-dark-850 mt-1 max-w-[280px]">
               <button
-                onClick={() => { setScannerMode('camera'); setManualSuccessMsg(''); setGroupErrorMsg(''); }}
-                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                  scannerMode === 'camera' 
-                    ? 'bg-violet-600 text-white shadow-md' 
+                type="button"
+                onClick={() => {
+                  setIsGroupCheckIn(true);
+                  setGroupSuccessCount(null);
+                  stopGroupCamera();
+                }}
+                className={`py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer ${
+                  isGroupCheckIn 
+                    ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-extrabold shadow-sm' 
                     : 'text-dark-400 hover:text-white'
                 }`}
               >
-                Shift Terminal
+                <UserCheck className="h-3.5 w-3.5" />
+                <span>Clock In Group</span>
               </button>
               <button
-                onClick={() => { setScannerMode('manual'); setGroupDetectedFaces([]); setGroupScanImage(null); }}
-                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                  scannerMode === 'manual' 
-                    ? 'bg-violet-600 text-white shadow-md' 
+                type="button"
+                onClick={() => {
+                  setIsGroupCheckIn(false);
+                  setGroupSuccessCount(null);
+                  stopGroupCamera();
+                }}
+                className={`py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer ${
+                  !isGroupCheckIn 
+                    ? 'bg-violet-500/10 border border-violet-500/20 text-violet-400 font-extrabold shadow-sm' 
                     : 'text-dark-400 hover:text-white'
                 }`}
               >
-                Manual Entry
+                <UserMinus className="h-3.5 w-3.5" />
+                <span>Clock Out Group</span>
               </button>
             </div>
           </div>
@@ -919,84 +828,37 @@ export default function SupervisorPortal({ currentUser }) {
 
       <div className="w-full">
         <div className="space-y-6">
-            {scannerMode === 'camera' ? (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="space-y-6">
                 
-                {/* Left 2 Columns: Video Scanner Panel */}
-                <div className="lg:col-span-2 space-y-4">
-                  <div className="glass-panel p-5 rounded-2xl border border-dark-800/60 flex flex-col space-y-4">
-                    
-                    {/* Scan Toolbar */}
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-dark-900 pb-4">
-                      <div className="flex items-center space-x-2">
-                        <span className="p-1.5 bg-violet-500/10 border border-violet-500/20 text-violet-400 rounded-lg">
-                          <Video className="h-4 w-4" />
-                        </span>
-                        <div>
-                          <h3 className="text-xs font-bold text-white">Live Scanner Frame</h3>
-                          <p className="text-[10px] text-dark-400 mt-0.5">Captures single or multiple worker identities side-by-side.</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Viewport Box */}
-                    <div className="relative aspect-[3/4] md:aspect-[16/9] bg-dark-950 rounded-xl overflow-hidden border border-dark-850 flex items-center justify-center">
-                      {/* On-screen auto-captured banner */}
-                      {latestCaptureMsg && (
-                        <div className="absolute top-4 left-4 right-4 bg-emerald-500/95 backdrop-blur-md border border-emerald-400 text-white px-4 py-3 rounded-xl flex items-center justify-between shadow-2xl z-30 transition-all duration-300 animate-slide-down">
-                          <div className="flex items-center space-x-2.5 min-w-0">
-                            <span className="p-1 bg-white/20 rounded-lg flex-shrink-0">
-                              <Check className="h-4 w-4 text-white font-extrabold" />
+                {/* 1. Capture/Standby State (No group image loaded yet) */}
+                {!groupScanImage && (
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    {/* Left 2 Columns: Video Scanner Panel */}
+                    <div className="lg:col-span-2 space-y-4">
+                      <div className="glass-panel p-5 rounded-2xl border border-dark-800/60 flex flex-col space-y-4">
+                        {/* Scan Toolbar */}
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-dark-900 pb-4">
+                          <div className="flex items-center space-x-2">
+                            <span className="p-1.5 bg-violet-500/10 border border-violet-500/20 text-violet-400 rounded-lg">
+                              <Video className="h-4 w-4" />
                             </span>
-                            <p className="text-xs font-bold truncate">{latestCaptureMsg}</p>
+                            <div>
+                              <h3 className="text-xs font-bold text-white">Live Scanner Frame</h3>
+                              <p className="text-[10px] text-dark-400 mt-0.5">Captures single or multiple worker identities side-by-side.</p>
+                            </div>
                           </div>
-                          <button 
-                            type="button"
-                            onClick={() => setLatestCaptureMsg('')} 
-                            className="text-white hover:text-emerald-100 transition cursor-pointer p-1"
-                          >
-                            <XCircle className="h-4.5 w-4.5" />
-                          </button>
                         </div>
-                      )}
 
-                      {isGroupCameraActive && (
-                        <>
-                          <video 
-                            ref={groupVideoRef} 
-                            className={`w-full h-full object-cover ${groupFacingMode === 'user' ? 'transform -scale-x-100' : ''}`}
-                            playsInline 
-                            muted 
-                          />
+                        {/* Viewport Box */}
+                        <div className="relative aspect-[3/4] md:aspect-[16/9] bg-dark-950 rounded-xl overflow-hidden border border-dark-850 flex items-center justify-center">
                           {isGroupCameraActive && (
                             <>
-                              {/* Face Detection Status Bar — top of viewport */}
-                              <div className="absolute top-4 left-4 z-20">
-                                {groupDetectedFaces.length === 0 ? (
-                                  <div className="flex items-center space-x-1.5 bg-dark-950/85 backdrop-blur-sm border border-dark-800 px-3 py-1.5 rounded-full shadow-lg">
-                                    <span className="w-2 h-2 rounded-full bg-violet-400 animate-pulse flex-shrink-0" />
-                                    <span className="text-[10px] font-bold text-dark-300 tracking-wide uppercase">Scanning for faces...</span>
-                                  </div>
-                                ) : (
-                                  <div className="flex items-center space-x-1.5 bg-dark-950/85 backdrop-blur-sm border border-emerald-500/30 px-3 py-1.5 rounded-full shadow-lg">
-                                    <span className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
-                                    <span className="text-[10px] font-bold text-white tracking-wide">
-                                      {groupDetectedFaces.length} face{groupDetectedFaces.length > 1 ? 's' : ''} detected
-                                    </span>
-                                    {groupDetectedFaces.filter(f => f.empId !== 'UNKNOWN').length > 0 && (
-                                      <span className="text-[9px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/25 px-1.5 py-0.5 rounded-full font-bold">
-                                        {groupDetectedFaces.filter(f => f.empId !== 'UNKNOWN').length} matched
-                                      </span>
-                                    )}
-                                    {groupDetectedFaces.filter(f => f.empId === 'UNKNOWN').length > 0 && (
-                                      <span className="text-[9px] bg-rose-500/20 text-rose-400 border border-rose-500/25 px-1.5 py-0.5 rounded-full font-bold">
-                                        {groupDetectedFaces.filter(f => f.empId === 'UNKNOWN').length} unknown
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-
+                              <video 
+                                ref={groupVideoRef} 
+                                className={`w-full h-full object-cover ${groupFacingMode === 'user' ? 'transform -scale-x-100' : ''}`}
+                                playsInline 
+                                muted 
+                              />
                               <div className="absolute top-4 right-4 flex space-x-2 z-20">
                                 {groupHasTorch && (
                                   <button
@@ -1022,504 +884,636 @@ export default function SupervisorPortal({ currentUser }) {
                                 </button>
                               </div>
 
-                              {/* End Streaming button */}
-                              <button
-                                type="button"
-                                onClick={stopGroupCamera}
-                                className="absolute bottom-6 left-1/2 transform -translate-x-1/2 px-6 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-full flex items-center space-x-2 border border-rose-500/25 font-bold text-xs tracking-wider shadow-xl transition z-20 cursor-pointer"
-                              >
-                                <StopCircle className="h-4 w-4 animate-pulse" />
-                                <span>End Streaming / Stop Scanner</span>
-                              </button>
+                              <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex space-x-3 z-20">
+                                <button
+                                  type="button"
+                                  onClick={captureGroupSnapshot}
+                                  className="px-6 py-2.5 bg-violet-600 hover:bg-violet-500 text-white rounded-full flex items-center space-x-2 border border-violet-500/25 font-bold text-xs tracking-wider shadow-xl transition cursor-pointer"
+                                >
+                                  <Camera className="h-4 w-4" />
+                                  <span>Capture Group Photo</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={stopGroupCamera}
+                                  className="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-full flex items-center space-x-2 border border-rose-500/25 font-bold text-xs tracking-wider shadow-xl transition cursor-pointer"
+                                >
+                                  <StopCircle className="h-4 w-4" />
+                                  <span>Stop Stream</span>
+                                </button>
+                              </div>
                             </>
                           )}
-                        </>
-                      )}
-                      
-                      {groupScanImage && (
-                        <>
-                          <img src={groupScanImage} className="w-full h-full object-cover opacity-60" alt="Captured Frame" />
-                          {!isGroupScanning && (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center space-y-3 bg-dark-950/40">
-                              <button
-                                onClick={() => {
-                                  setGroupScanImage(null);
-                                  setGroupDetectedFaces([]);
-                                  setGroupErrorMsg('');
-                                  setGroupSuccessCount(null);
-                                  startGroupCamera();
-                                }}
-                                className="px-5 py-2.5 bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold rounded-xl shadow-lg transition cursor-pointer flex items-center space-x-2"
-                              >
-                                <Camera className="h-4 w-4" />
-                                <span>Retake Picture / Reset Scanner</span>
-                              </button>
-                              {groupDetectedFaces.length === 0 && (
-                                <p className="text-[10px] text-rose-455 bg-dark-950/80 px-3 py-1.5 border border-rose-500/20 rounded-full font-bold">
-                                  ⚠️ No faces detected in the image. Please retake.
-                                </p>
-                              )}
+
+                          {/* Standby/Uploader Menu */}
+                          {!isGroupCameraActive && (
+                            <div className="flex flex-col items-center justify-center text-center p-8 text-dark-500 space-y-4 max-w-sm">
+                              <Camera className="h-10 w-10 text-violet-400 animate-pulse" />
+                              <div className="space-y-1">
+                                <p className="text-xs font-semibold text-white">Attendance via Group Photo</p>
+                                <p className="text-[10px] text-dark-400">Capture a live group image or upload an existing photo to match multiple employees.</p>
+                              </div>
+                              <div className="flex flex-col sm:flex-row gap-3 w-full">
+                                <button
+                                  onClick={() => startGroupCamera()}
+                                  className="flex-1 px-4 py-2.5 bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold rounded-xl shadow-lg transition cursor-pointer flex items-center justify-center space-x-2"
+                                >
+                                  <Video className="h-4 w-4" />
+                                  <span>Capture Webcam</span>
+                                </button>
+                                <label className="flex-1 px-4 py-2.5 bg-dark-900 hover:bg-dark-800 border border-dark-800 text-dark-300 text-xs font-bold rounded-xl shadow-lg transition cursor-pointer flex items-center justify-center space-x-2 text-center">
+                                  <Upload className="h-4 w-4 text-violet-400" />
+                                  <span>Upload Photo</span>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={handleGroupPhotoUpload}
+                                  />
+                                </label>
+                              </div>
                             </div>
                           )}
-                        </>
-                      )}
 
-                      {/* Hidden processing canvas */}
-                      <canvas ref={groupCanvasRef} className="hidden" />
-
-                      {/* laser scanner animations */}
-                      {isGroupScanning && (
-                        <div className="absolute inset-0 bg-violet-500/5 flex items-center justify-center z-10">
-                          <div className="laser-scanner" />
-                          <p className="absolute bottom-6 bg-dark-950/80 px-4 py-2 border border-violet-500/20 text-[10px] uppercase font-bold text-violet-400 rounded-xl tracking-widest animate-pulse">
-                            {groupScanStatusMsg}
-                          </p>
+                          {/* Processing loading bar */}
+                          {isGroupScanning && (
+                            <div className="absolute inset-0 bg-dark-950/80 backdrop-blur-sm flex flex-col items-center justify-center z-40 space-y-4">
+                              <RefreshCw className="h-10 w-10 text-violet-400 animate-spin" />
+                              <div className="text-center space-y-1">
+                                <p className="text-xs font-bold text-white">Processing Group Photo</p>
+                                <p className="text-[10px] text-dark-400 animate-pulse">{groupScanStatusMsg}</p>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      )}
-
-                      {/* Camera fallback screen */}
-                      {!isGroupCameraActive && !groupScanImage && (
-                        <div className="flex flex-col items-center justify-center text-center p-8 text-dark-500 space-y-3">
-                          <Camera className="h-10 w-10 text-dark-600" />
-                          <div className="space-y-1">
-                            <p className="text-xs font-semibold text-white">Scanner Standby Mode</p>
-                            <p className="text-[10px] text-dark-400">Initialize webcam streams or select preset templates to run log scan.</p>
-                          </div>
-                          <button
-                            onClick={startGroupCamera}
-                            className="px-5 py-2.5 bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold rounded-xl shadow-lg transition"
-                          >
-                            Start Webcam Scanner
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Right column: Controls & outcomes */}
-                <div className="space-y-6">
-                  <div className="glass-panel p-6 rounded-2xl border border-dark-800/60 space-y-5">
-                    <div>
-                      <h3 className="text-sm font-display font-extrabold text-white">Shift Registry Dispatcher</h3>
-                      <p className="text-[10px] text-dark-400 mt-1">Define check-in/out mode and save attendance to shift log records.</p>
-                    </div>
-
-                    {/* Mode Toggle */}
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold text-dark-400 uppercase">Clocking Mode Action</label>
-                      <div className="grid grid-cols-2 bg-dark-950 p-1 rounded-xl border border-dark-850">
-                        <button
-                          type="button"
-                          onClick={() => { 
-                            setIsGroupCheckIn(true); 
-                            setGroupSuccessCount(null); 
-                            stopGroupCamera();
-                            sessionLoggedIds.current = new Set();
-                            setSessionLogged([]);
-                          }}
-                          className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition cursor-pointer ${
-                            isGroupCheckIn 
-                              ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-extrabold shadow-sm' 
-                              : 'text-dark-400 hover:text-white'
-                          }`}
-                        >
-                          <UserCheck className="h-4 w-4" />
-                          <span>Clock In Shift</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => { 
-                            setIsGroupCheckIn(false); 
-                            setGroupSuccessCount(null); 
-                            stopGroupCamera();
-                            sessionLoggedIds.current = new Set();
-                            setSessionLogged([]);
-                          }}
-                          className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition cursor-pointer ${
-                            !isGroupCheckIn 
-                              ? 'bg-violet-500/10 border border-violet-500/20 text-violet-400 font-extrabold shadow-sm' 
-                              : 'text-dark-400 hover:text-white'
-                          }`}
-                        >
-                          <UserMinus className="h-4 w-4" />
-                          <span>Clock Out Shift</span>
-                        </button>
+                        {/* Hidden processing canvas */}
+                        <canvas ref={groupCanvasRef} className="hidden" />
                       </div>
                     </div>
 
+                    {/* Right column: Controls & Registry Dispatcher */}
+                    <div className="space-y-6">
+                      <div className="glass-panel p-6 rounded-2xl border border-dark-800/60 space-y-5">
+                        <div>
+                          <h3 className="text-sm font-display font-extrabold text-white">Shift Registry Dispatcher</h3>
+                          <p className="text-[10px] text-dark-400 mt-1">Scan and save attendance to shift log records.</p>
+                        </div>
+
+                        {groupErrorMsg && (
+                          <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-455 text-xs flex items-start space-x-2 leading-relaxed">
+                            <XCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                            <span>{groupErrorMsg}</span>
+                          </div>
+                        )}
+
+                        {groupSuccessCount !== null && (
+                          <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl space-y-2">
+                            <p className="text-emerald-400 text-xs font-bold flex items-center">
+                              <ShieldCheck className="h-4.5 w-4.5 mr-1 text-emerald-400 animate-bounce" />
+                              Attendance Session Complete!
+                            </p>
+                            <p className="text-[10px] text-dark-300 leading-relaxed">
+                              Successfully recorded attendance logs for <strong>{groupSuccessCount} employees</strong>. Original group photo & crops uploaded.
+                            </p>
+                            <button
+                              onClick={() => { setGroupSuccessCount(null); }}
+                              className="w-full py-2 bg-dark-900 hover:bg-dark-800 border border-dark-800 text-[10px] text-white font-bold rounded-xl transition cursor-pointer"
+                            >
+                              Dismiss Message
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Employee Shift Status List */}
+                        <div className="space-y-3 pt-4 border-t border-dark-900">
+                          <div className="flex items-center justify-between pb-1">
+                            <span className="text-[10px] font-bold text-dark-400 uppercase">Employee Shift Status</span>
+                            <span className="text-[9px] text-dark-500 font-mono">Today</span>
+                          </div>
+                          <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                            {(() => {
+                              const todayStr = new Date().toDateString();
+                              const allLogs = dbService.getAttendance();
+                              const todayLogs = allLogs.filter(a => new Date(a.checkInTime).toDateString() === todayStr && a.employeeId !== 'UNKNOWN');
+
+                              return employees.map((emp) => {
+                                const log = todayLogs.find(l => l.employeeId === emp.id);
+                                let statusText = 'Not Checked In';
+                                let statusColor = 'bg-dark-900 text-dark-400 border-dark-850';
+                                let timeStr = '';
+
+                                if (log) {
+                                  if (log.checkOutTime) {
+                                    statusText = 'Clocked Out';
+                                    statusColor = 'bg-brand-500/10 text-brand-400 border-brand-500/20';
+                                    timeStr = new Date(log.checkOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                  } else {
+                                    statusText = 'Clocked In';
+                                    statusColor = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+                                    timeStr = new Date(log.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                  }
+                                }
+
+                                return (
+                                  <div key={emp.id} className="flex items-center justify-between p-2 bg-dark-950/30 border border-dark-900 rounded-xl hover:border-dark-800 transition">
+                                    <div className="flex items-center space-x-2.5 min-w-0">
+                                      <img 
+                                        src={emp.avatar || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none"><circle cx="50" cy="50" r="50" fill="%231e293b"/></svg>'} 
+                                        className="w-7 h-7 rounded-lg object-cover border border-dark-800 bg-dark-900 flex-shrink-0" 
+                                        alt={emp.name} 
+                                      />
+                                      <div className="min-w-0">
+                                        <p className="text-xs font-bold text-white truncate leading-tight">{emp.name}</p>
+                                        <p className="text-[9px] text-dark-500 font-mono mt-0.5">{emp.id}</p>
+                                      </div>
+                                    </div>
+                                    <div className="text-right flex-shrink-0 flex flex-col items-end space-y-0.5">
+                                      <span className={`text-[8px] px-2 py-0.5 rounded-full font-bold border ${statusColor}`}>
+                                        {statusText}
+                                      </span>
+                                      {timeStr && <p className="text-[8px] text-dark-500 font-mono">{timeStr}</p>}
+                                    </div>
+                                  </div>
+                                );
+                              });
+                            })()}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. Photo Processing & Review Stage */}
+                {groupScanImage && (
+                  <div className="space-y-6">
+                    {/* Top Alert Error if any */}
                     {groupErrorMsg && (
-                      <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-455 text-xs flex items-start space-x-2 leading-relaxed">
-                        <XCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                      <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-455 text-xs flex items-center space-x-2">
+                        <XCircle className="h-4 w-4 flex-shrink-0" />
                         <span>{groupErrorMsg}</span>
                       </div>
                     )}
-
-                    {groupSuccessCount !== null && (
-                      <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl space-y-2">
-                        <p className="text-emerald-400 text-xs font-bold flex items-center">
-                          <ShieldCheck className="h-4.5 w-4.5 mr-1 text-emerald-400 animate-bounce" />
-                          Shift Log Transaction Complete!
-                        </p>
-                        <p className="text-[10px] text-dark-300 leading-relaxed">
-                          Successfully saved attendance logs for <strong>{groupSuccessCount} workers</strong>. Time cards logged and photo proofs stored.
-                        </p>
-                        <button
-                          onClick={() => { setGroupSuccessCount(null); startGroupCamera(); }}
-                          className="w-full py-2 bg-dark-900 hover:bg-dark-800 border border-dark-800 text-[10px] text-white font-bold rounded-xl transition cursor-pointer"
-                        >
-                          Scan Next Shift Group
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Auto-Logged Session Feed */}
-                    {isGroupCameraActive && (
-                      <div className="space-y-3 pt-2 border-t border-dark-900">
-                        <div className="flex items-center justify-between pb-1">
-                          <span className="text-[10px] font-bold text-dark-400 uppercase">Logged in Session ({sessionLogged.length})</span>
-                          {sessionLogged.length > 0 && (
-                            <span className="text-[9px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 border border-emerald-500/20 rounded-full font-bold">
-                              Real-time Auto Saved
-                            </span>
-                          )}
-                        </div>
-
-                        {sessionLogged.length === 0 ? (
-                          <div className="py-8 text-center text-dark-500 text-[10px] bg-dark-950/20 border border-dashed border-dark-900 rounded-xl leading-relaxed p-4">
-                            <Users className="h-6 w-6 mx-auto mb-2 text-dark-600 animate-pulse" />
-                            <p className="font-semibold text-dark-400">Webcam Scanner Active</p>
-                            <p className="text-[9px] text-dark-500 mt-1">Stand in front of the camera. Resolved faces will automatically check in/out in real-time.</p>
-                          </div>
-                        ) : (
-                          <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-                            {sessionLogged.map((log) => (
-                              <div key={log.logId || log.empId} className="flex items-center justify-between p-2.5 bg-dark-950/50 border border-dark-850 rounded-xl hover:border-dark-700 transition">
-                                <div className="flex items-center space-x-2.5 min-w-0">
-                                  <img 
-                                    src={log.avatar} 
-                                    className="w-8 h-8 rounded-lg object-cover border border-dark-800 bg-dark-900 flex-shrink-0" 
-                                    alt={log.name} 
-                                  />
-                                  <div className="min-w-0">
-                                    <p className="text-xs font-bold text-white truncate leading-tight">{log.name}</p>
-                                    <p className="text-[9px] text-dark-500 font-mono truncate mt-0.5">{log.empId}</p>
-                                  </div>
-                                </div>
-                                <div className="text-right flex-shrink-0">
-                                  <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold ${
-                                    log.logType === 'Clock In' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/15' : 'bg-brand-500/10 text-brand-400 border border-brand-500/15'
-                                  }`}>
-                                    {log.logType}
-                                  </span>
-                                  <p className="text-[8px] text-dark-500 font-mono mt-1">{log.loggedAt}</p>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-
-
-                    {/* Employee Shift Status List */}
-                    <div className="space-y-3 pt-4 border-t border-dark-900">
-                      <div className="flex items-center justify-between pb-1">
-                        <span className="text-[10px] font-bold text-dark-400 uppercase">Employee Shift Status</span>
-                        <span className="text-[9px] text-dark-500 font-mono">Today</span>
-                      </div>
-                      <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-                        {(() => {
-                          const todayStr = new Date().toDateString();
-                          const allLogs = dbService.getAttendance();
-                          const todayLogs = allLogs.filter(a => new Date(a.checkInTime).toDateString() === todayStr && a.employeeId !== 'UNKNOWN');
-
-                          return employees.map((emp) => {
-                            const log = todayLogs.find(l => l.employeeId === emp.id);
-                            let statusText = 'Not Checked In';
-                            let statusColor = 'bg-dark-900 text-dark-400 border-dark-850';
-                            let timeStr = '';
-
-                            if (log) {
-                              if (log.checkOutTime) {
-                                statusText = 'Clocked Out';
-                                statusColor = 'bg-brand-500/10 text-brand-400 border-brand-500/20';
-                                timeStr = new Date(log.checkOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                              } else {
-                                statusText = 'Clocked In';
-                                statusColor = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-                                timeStr = new Date(log.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                              }
-                            }
-
-                            return (
-                              <div key={emp.id} className="flex items-center justify-between p-2 bg-dark-950/30 border border-dark-900 rounded-xl hover:border-dark-800 transition">
-                                <div className="flex items-center space-x-2.5 min-w-0">
-                                  <img 
-                                    src={emp.avatar || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none"><circle cx="50" cy="50" r="50" fill="%231e293b"/></svg>'} 
-                                    className="w-7 h-7 rounded-lg object-cover border border-dark-800 bg-dark-900 flex-shrink-0" 
-                                    alt={emp.name} 
-                                  />
-                                  <div className="min-w-0">
-                                    <p className="text-xs font-bold text-white truncate leading-tight">{emp.name}</p>
-                                    <p className="text-[9px] text-dark-500 font-mono mt-0.5">{emp.id}</p>
-                                  </div>
-                                </div>
-                                <div className="text-right flex-shrink-0 flex flex-col items-end space-y-0.5">
-                                  <span className={`text-[8px] px-2 py-0.5 rounded-full font-bold border ${statusColor}`}>
-                                    {statusText}
-                                  </span>
-                                  {timeStr && <p className="text-[8px] text-dark-500 font-mono">{timeStr}</p>}
-                                </div>
-                              </div>
-                            );
-                          });
-                        })()}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              /* Manual Entry Form */
-              <div className="max-w-xl mx-auto glass-panel p-6 rounded-2xl border border-dark-800/60 space-y-4">
-                <div>
-                  <h3 className="text-sm font-display font-extrabold text-white flex items-center space-x-2">
-                    <Sliders className="h-4.5 w-4.5 text-violet-400" />
-                    <span>Supervisor Manual Log Override</span>
-                  </h3>
-                  <p className="text-[10px] text-dark-400 mt-1">
-                    Bypasses spatial matching vectors and locks coordinates validation. Requires administrative approval.
-                  </p>
-                </div>
-
-                <form onSubmit={handleManualOverrideSubmit} className="space-y-4 text-xs">
-                  {groupErrorMsg && (
-                    <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-455 text-xs rounded-xl flex items-center space-x-2">
-                      <XCircle className="h-4 w-4 flex-shrink-0" />
-                      <span>{groupErrorMsg}</span>
-                    </div>
-                  )}
-                  
-                  {manualSuccessMsg && (
-                    <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded-xl flex items-center space-x-2">
-                      <CheckCircle className="h-4 w-4 flex-shrink-0" />
-                      <span>{manualSuccessMsg}</span>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-dark-400 uppercase">Employee Profile</label>
-                      <select
-                        value={manualEmpId}
-                        onChange={(e) => setManualEmpId(e.target.value)}
-                        className="w-full bg-dark-950 border border-dark-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-violet-500 cursor-pointer"
-                      >
-                        <option value="">Select Employee...</option>
-                        {employees.map(emp => (
-                          <option key={emp.id} value={emp.id}>{emp.name} ({emp.id})</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-dark-400 uppercase">Transaction Action</label>
-                      <select
-                        value={manualType}
-                        onChange={(e) => setManualType(e.target.value)}
-                        className="w-full bg-dark-950 border border-dark-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-violet-500 cursor-pointer"
-                      >
-                        <option value="checkin">Clock In Manual</option>
-                        <option value="checkout">Clock Out Manual</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-dark-400 uppercase">Timestamp Lock</label>
-                    <input
-                      type="datetime-local"
-                      value={manualTime}
-                      onChange={(e) => setManualTime(e.target.value)}
-                      className="w-full bg-dark-950 border border-dark-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-violet-500"
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-dark-400 uppercase">Override Justification Notes</label>
-                    <textarea
-                      value={manualReason}
-                      onChange={(e) => setManualReason(e.target.value)}
-                      placeholder="Specify override reasons (e.g. employee left phone, webcam network error, etc.)..."
-                      className="w-full bg-dark-950 border border-dark-800 rounded-xl px-3 py-2 text-xs text-white h-20 resize-none focus:outline-none focus:border-violet-500"
-                      required
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="w-full py-3 bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs rounded-xl shadow-lg transition cursor-pointer"
-                  >
-                    Sign Override Card & Save Log
-                  </button>
-                </form>
-              </div>
-            )}
-
-            {/* Grid of Results (Single or Multiple Detected Faces) */}
-            {scannerMode === 'camera' && groupDetectedFaces.length > 0 && (
-              <div className="space-y-4">
-                <h4 className="font-display font-extrabold text-sm text-white">Detected Face Output Results ({groupDetectedFaces.length})</h4>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-                  {groupDetectedFaces.map((f) => {
-                    const isManualReview = f.status === 'Manual Review';
-                    const isUnknown = f.empId === 'UNKNOWN';
                     
-                    return (
-                      <div 
-                        key={f.id} 
-                        className={`glass-panel p-4 rounded-2xl border transition-all duration-300 flex flex-col justify-between space-y-3 ${
-                          f.isOverride 
-                            ? 'border-violet-550 bg-violet-950/5' 
-                            : isUnknown 
-                              ? 'border-rose-500/50 bg-rose-500/5' 
-                              : isManualReview || f.status === 'Blink Required'
-                                ? 'border-amber-500/50 bg-amber-500/5' 
-                                : f.status === 'Already Checked In' || f.status === 'Already Checked Out' || f.status === 'No Active Check-In'
-                                  ? 'border-blue-500/50 bg-blue-500/5'
-                                  : 'border-emerald-500/40'
-                        }`}
-                      >
-                        {/* Card header */}
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2.5">
-                            <img 
-                              src={f.avatar} 
-                              className="w-10 h-10 rounded-lg object-cover border border-dark-800 bg-dark-950" 
-                              alt="Crop" 
-                            />
-                            <div className="min-w-0">
-                              <p className="text-xs font-bold text-white truncate leading-tight">{f.name}</p>
-                              <p className="text-[9px] text-dark-500 font-mono truncate mt-0.5">ID: {f.empId}</p>
+                    <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                      
+                      {/* Left: Interactive Group Image Overlay */}
+                      <div className="xl:col-span-2 space-y-4">
+                        <div className="glass-panel p-4 rounded-2xl border border-dark-800/60 flex flex-col space-y-3">
+                          <div className="flex justify-between items-center pb-2 border-b border-dark-900">
+                            <div>
+                              <h4 className="text-xs font-bold text-white uppercase">Group Photo Proof</h4>
+                              <p className="text-[9px] text-dark-400 mt-0.5">Detected Faces: {groupDetectedFaces.length}</p>
                             </div>
+                            <button
+                              onClick={() => {
+                                setGroupScanImage(null);
+                                setGroupDetectedFaces([]);
+                                setGroupErrorMsg('');
+                              }}
+                              className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-550/20 rounded-lg text-[10px] font-bold transition flex items-center space-x-1"
+                            >
+                              <XCircle className="h-3.5 w-3.5" />
+                              <span>Discard Image</span>
+                            </button>
                           </div>
                           
-                          <div className="text-right">
-                            <p className={`text-xs font-extrabold ${
-                              isUnknown 
-                                ? 'text-rose-455' 
-                                : isManualReview 
-                                  ? 'text-amber-400' 
-                                  : f.status === 'Already Checked In' || f.status === 'Already Checked Out' || f.status === 'No Active Check-In'
-                                    ? 'text-blue-400'
-                                    : 'text-emerald-400'
-                            }`}>
-                              {f.confidence}%
-                            </p>
-                            <p className="text-[8px] text-dark-500 uppercase mt-0.5">Score</p>
-                          </div>
-                        </div>
-
-                        {/* Status tag */}
-                        <div className="flex items-center justify-between text-[10px]">
-                          <span className="text-dark-500 font-medium">Status Match:</span>
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold border text-[8px] uppercase tracking-wider ${
-                            f.isOverride
-                              ? 'bg-violet-500/10 border-violet-500/20 text-violet-400'
-                              : isUnknown
-                                ? 'bg-rose-500/10 border-rose-500/20 text-rose-455 animate-pulse'
-                                : isManualReview || f.status === 'Blink Required'
-                                  ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                                  : f.status === 'Already Checked In' || f.status === 'Already Checked Out' || f.status === 'No Active Check-In'
-                                    ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
-                                    : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                          }`}>
-                            {f.isOverride ? 'Supervisor Override' : f.status}
-                          </span>
-                        </div>
-
-                        {/* Liveness Check */}
-                        {f.empId !== 'UNKNOWN' && (f.status === 'Recognized' || f.status === 'Blink Required') && (
-                          <div className="flex items-center justify-between text-[10px]">
-                            <span className="text-dark-500 font-medium">Liveness Check:</span>
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold border text-[8px] uppercase tracking-wider ${
-                              (f.blinkDetected || f.motionDetected)
-                                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                                : 'bg-amber-500/10 border-amber-500/20 text-amber-400 animate-pulse font-mono'
-                            }`}>
-                              {(f.blinkDetected || f.motionDetected) ? 'Verified ✓' : 'Blink or Turn Head'}
-                            </span>
-                          </div>
-                        )}
-
-                        {/* Telemetry data indexes */}
-                        <div className="grid grid-cols-3 gap-1 bg-dark-950 p-2 rounded-lg text-center border border-dark-850">
-                          <div>
-                            <p className="text-[8px] text-dark-500 font-bold uppercase tracking-wider">Quality</p>
-                            <p className={`text-[10px] font-extrabold ${f.qualityScore >= 80 ? 'text-emerald-400' : 'text-amber-500'}`}>{f.qualityScore || 0}%</p>
-                          </div>
-                          <div>
-                            <p className="text-[8px] text-dark-500 font-bold uppercase tracking-wider">Liveness</p>
-                            <p className={`text-[10px] font-extrabold ${f.livenessScore >= 75 ? 'text-emerald-400' : 'text-rose-450'}`}>{f.livenessScore || 0}%</p>
-                          </div>
-                          <div>
-                            <p className="text-[8px] text-dark-500 font-bold uppercase tracking-wider">Similarity</p>
-                            <p className={`text-[10px] font-extrabold ${f.similarityScore >= 80 ? 'text-emerald-400' : 'text-amber-500'}`}>{f.similarityScore || 0}%</p>
-                          </div>
-                        </div>
-
-                        {/* Supervisor manual override picker */}
-                        <div className="space-y-1">
-                          <label className="text-[8px] font-bold text-dark-500 uppercase tracking-wider">Manual Identity Picker</label>
-                          <select
-                            value={f.empId}
-                            onChange={(e) => handleOverrideEmployeeId(f.id, e.target.value)}
-                            className="w-full bg-dark-950 border border-dark-850 rounded-lg px-2 py-1.5 text-[10px] text-white focus:outline-none focus:border-violet-500 transition cursor-pointer"
-                          >
-                            <option value="UNKNOWN">Unrecognized Person</option>
-                            {employees.map(emp => (
-                              <option key={emp.id} value={emp.id}>{emp.name} ({emp.id})</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Diagnostics toggle details */}
-                        {f.biometricsReport && (
-                          <div className="border border-dark-850 rounded-lg overflow-hidden text-[9px] mt-1">
-                            <button
-                              type="button"
-                              onClick={() => toggleDiagnostics(f.id)}
-                              className="w-full px-2 py-1.5 bg-dark-900/60 flex items-center justify-between text-dark-400 hover:text-white font-bold cursor-pointer"
-                            >
-                              <span>🔍 Diagnostics</span>
-                              <span>{showDiagnostics[f.id] ? '▲' : '▼'}</span>
-                            </button>
-                            {showDiagnostics[f.id] && (
-                              <div className="bg-dark-950 p-2 divide-y divide-dark-900 space-y-1 font-mono">
-                                {f.biometricsReport.parameters.slice(0, 5).map((p, idx) => (
-                                  <div key={idx} className="flex justify-between py-0.5">
-                                    <span className="text-dark-500 truncate max-w-[85px]">{p.name.replace(' (IPD)', '')}</span>
-                                    <span className={p.status === 'Match' ? 'text-emerald-400' : 'text-rose-455'}>
-                                      {p.status === 'Match' ? '✓' : '✗'}
+                          <div className="flex justify-center bg-dark-950/40 p-2 rounded-xl border border-dark-900">
+                            <div className="relative inline-block w-full max-w-4xl overflow-hidden rounded-lg">
+                              <img
+                                src={groupScanImage}
+                                className="block w-full h-auto rounded-lg"
+                                alt="Staging Queue Group Snapshot"
+                              />
+                              {/* Overlay Bounding Boxes */}
+                              {groupDetectedFaces.map(face => {
+                                const left = (face.box.x / photoDimensions.width) * 100;
+                                const top = (face.box.y / photoDimensions.height) * 100;
+                                const width = (face.box.w / photoDimensions.width) * 100;
+                                const height = (face.box.h / photoDimensions.height) * 100;
+                                const isActive = activeCardId === face.id;
+                                const borderColor = face.status === 'Recognized' ? 'border-emerald-500' : face.status === 'Possible Match' ? 'border-amber-500' : 'border-rose-500';
+                                
+                                return (
+                                  <div
+                                    key={face.id}
+                                    style={{
+                                      position: 'absolute',
+                                      left: `${left}%`,
+                                      top: `${top}%`,
+                                      width: `${width}%`,
+                                      height: `${height}%`
+                                    }}
+                                    className={`border-2 ${borderColor} ${isActive ? 'ring-2 ring-white/50 scale-105 z-10' : 'opacity-85'} transition-all rounded-md cursor-pointer`}
+                                    onMouseEnter={() => setActiveCardId(face.id)}
+                                    onMouseLeave={() => setActiveCardId(null)}
+                                  >
+                                    <span className={`absolute top-0 left-0 text-[8px] font-extrabold text-white px-1.5 py-0.5 rounded-br ${
+                                      face.status === 'Recognized' ? 'bg-emerald-600' :
+                                      face.status === 'Possible Match' ? 'bg-amber-600' : 'bg-rose-600'
+                                    }`}>
+                                      {face.id}
                                     </span>
                                   </div>
-                                )) }
-                              </div>
-                            )}
+                                );
+                              })}
+                            </div>
                           </div>
-                        )}
+                        </div>
                       </div>
-                    );
-                  })}
+
+                      {/* Right: Stage Control Panel */}
+                      <div className="space-y-4">
+                        <div className="glass-panel p-5 rounded-2xl border border-dark-800/60 space-y-4">
+                          <div>
+                            <h4 className="text-xs font-bold text-white uppercase tracking-wider">Attendance Queue Control</h4>
+                            <p className="text-[10px] text-dark-400 mt-1">Review the matching output, resolve warnings/unknowns, and bulk approve.</p>
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <label className="text-[9px] font-bold text-dark-400 uppercase">Clock Action type</label>
+                            <div className="grid grid-cols-2 bg-dark-950 p-1 rounded-xl border border-dark-850">
+                              <button
+                                type="button"
+                                onClick={() => setIsGroupCheckIn(true)}
+                                className={`py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center space-x-1 transition cursor-pointer ${
+                                  isGroupCheckIn 
+                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-550/20 font-extrabold' 
+                                    : 'text-dark-400 hover:text-white'
+                                }`}
+                              >
+                                <UserCheck className="h-3.5 w-3.5" />
+                                <span>Clock In</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setIsGroupCheckIn(false)}
+                                className={`py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center space-x-1 transition cursor-pointer ${
+                                  !isGroupCheckIn 
+                                    ? 'bg-violet-500/10 text-violet-400 border border-violet-550/20 font-extrabold' 
+                                    : 'text-dark-400 hover:text-white'
+                                }`}
+                              >
+                                <UserMinus className="h-3.5 w-3.5" />
+                                <span>Clock Out</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Stage Queue Cards List */}
+                    <div className="space-y-3.5 pt-4">
+                      <h4 className="font-display font-extrabold text-sm text-white uppercase tracking-wider">Face Identification review list ({groupDetectedFaces.length})</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                        {groupDetectedFaces.map(face => {
+                          const emp = face.overrideEmp || face.matchedEmp;
+                          const isActive = activeCardId === face.id;
+                          const isApproved = face.approved;
+                          
+                          return (
+                            <div
+                              key={face.id}
+                              onMouseEnter={() => setActiveCardId(face.id)}
+                              onMouseLeave={() => setActiveCardId(null)}
+                              className={`glass-panel p-4 rounded-2xl border transition-all duration-300 flex flex-col justify-between space-y-4 ${
+                                isActive ? 'border-violet-550 bg-dark-900/30 shadow-xl scale-[1.01]' : 'border-dark-850'
+                              } ${isApproved ? 'border-emerald-550/40 bg-emerald-500/5' : ''} ${
+                                face.rejected ? 'border-rose-500/30 opacity-70' : ''
+                              }`}
+                            >
+                              {/* Crop thumbnail and metadata */}
+                              <div className="flex items-start space-x-3.5">
+                                <img
+                                  src={face.avatar}
+                                  className="w-14 h-14 rounded-xl object-cover border border-dark-800 bg-dark-955 flex-shrink-0"
+                                  alt="Crop"
+                                />
+                                <div className="min-w-0 flex-1 space-y-1">
+                                  <div className="flex items-center space-x-1.5">
+                                    <span className="text-[9px] bg-dark-955 border border-dark-800 text-dark-300 px-1.5 py-0.5 rounded font-bold">
+                                      {face.id}
+                                    </span>
+                                    {face.status === 'Recognized' && (
+                                      <span className="text-[8.5px] bg-emerald-500/10 text-emerald-450 border border-emerald-500/20 px-2 py-0.5 rounded-full font-bold">
+                                        Recognized
+                                      </span>
+                                    )}
+                                    {face.status === 'Possible Match' && (
+                                      <span className="text-[8.5px] bg-amber-500/10 text-amber-400 border border-amber-550/20 px-2 py-0.5 rounded-full font-bold">
+                                        Possible Match
+                                      </span>
+                                    )}
+                                    {face.status === 'Unknown' && (
+                                      <span className="text-[8.5px] bg-rose-500/10 text-rose-455 border border-rose-500/20 px-2 py-0.5 rounded-full font-bold">
+                                        Unknown Person
+                                      </span>
+                                    )}
+                                  </div>
+                                  
+                                  {emp ? (
+                                    <div className="space-y-0.5 text-[10px]">
+                                      <p className="text-xs font-bold text-white truncate">{emp.name}</p>
+                                      <p className="text-[9px] text-dark-400 font-mono truncate">ID: {emp.id}</p>
+                                      <p className="text-[9px] text-dark-500 truncate">Mob: {emp.mobile}</p>
+                                      <p className="text-[9.5px] text-violet-400 font-bold mt-1">
+                                        Confidence: {face.confidence}%
+                                      </p>
+                                    </div>
+                                  ) : (
+                                    <p className="text-[10px] font-bold text-dark-500 italic mt-1">Unregistered Person</p>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Card Actions: Confirm, Search, Register */}
+                              <div className="pt-2 border-t border-dark-900/60 space-y-2">
+                                {face.status === 'Possible Match' && !face.overrideEmp && (
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      onClick={() => {
+                                        setGroupDetectedFaces(prev => prev.map(f => {
+                                          if (f.id === face.id) {
+                                            return { ...f, approved: true, rejected: false, status: 'Recognized' };
+                                          }
+                                          return f;
+                                        }));
+                                      }}
+                                      className="flex-1 py-1.5 bg-amber-500 text-dark-950 text-[10px] font-bold rounded-lg transition hover:bg-amber-400 cursor-pointer text-center"
+                                    >
+                                      Confirm Match
+                                    </button>
+                                    <button
+                                      onClick={() => setShowSearchFaceId(face.id)}
+                                      className="flex-1 py-1.5 bg-dark-900 border border-dark-800 text-[10px] text-dark-300 font-bold rounded-lg transition hover:bg-dark-800 cursor-pointer text-center"
+                                    >
+                                      Change Employee
+                                    </button>
+                                  </div>
+                                )}
+
+                                {face.status === 'Unknown' && !face.overrideEmp && (
+                                  <div className="flex flex-col gap-1.5">
+                                    <button
+                                      onClick={() => setShowSearchFaceId(face.id)}
+                                      className="w-full py-1.5 bg-dark-900 border border-dark-800 hover:bg-dark-800 text-[10px] font-bold text-white rounded-lg transition flex items-center justify-center space-x-1 cursor-pointer"
+                                    >
+                                      <span>Assign Existing Employee</span>
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setRegisteringFaceId(face.id);
+                                        setNewEmpError('');
+                                      }}
+                                      className="w-full py-1.5 bg-violet-650/10 hover:bg-violet-650/20 border border-violet-500/20 text-[10px] font-bold text-violet-400 rounded-lg transition flex items-center justify-center space-x-1 cursor-pointer"
+                                    >
+                                      <span>Register New Employee</span>
+                                    </button>
+                                  </div>
+                                )}
+
+                                {showSearchFaceId === face.id && (
+                                  <div className="bg-dark-955 p-2 rounded-xl border border-dark-800 mt-2 space-y-2">
+                                    <p className="text-[9px] font-bold text-dark-400 uppercase">Search Employee</p>
+                                    <select
+                                      onChange={(e) => {
+                                        const selected = employees.find(x => x.id === e.target.value);
+                                        if (selected) {
+                                          handleAssignEmployee(face.id, selected);
+                                          setShowSearchFaceId(null);
+                                        }
+                                      }}
+                                      className="w-full bg-dark-900 border border-dark-850 rounded-lg px-2 py-1 text-[10px] text-white focus:outline-none focus:border-violet-500 cursor-pointer"
+                                      defaultValue=""
+                                    >
+                                      <option value="" disabled>Select employee...</option>
+                                      {employees.map(x => (
+                                        <option key={x.id} value={x.id}>{x.name} ({x.id})</option>
+                                      ))}
+                                    </select>
+                                    <button
+                                      onClick={() => setShowSearchFaceId(null)}
+                                      className="text-[9px] text-dark-500 hover:text-white underline block"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Individual Approve/Reject buttons */}
+                              {((face.matchedEmp || face.overrideEmp) && showSearchFaceId !== face.id) && (
+                                <div className="flex items-center justify-between pt-2 border-t border-dark-900/40">
+                                  <span className="text-[9px] text-dark-400 font-bold uppercase">Candidate Status</span>
+                                  <div className="flex items-center space-x-2">
+                                    <button
+                                      onClick={() => {
+                                        setGroupDetectedFaces(prev => prev.map(f => {
+                                          if (f.id === face.id) {
+                                            return { ...f, approved: true, rejected: false };
+                                          }
+                                          return f;
+                                        }));
+                                      }}
+                                      className={`px-3 py-1 rounded-lg text-[9px] font-bold transition cursor-pointer ${
+                                        isApproved
+                                          ? 'bg-emerald-600 text-white shadow-sm'
+                                          : 'bg-dark-900 text-dark-400 hover:text-white'
+                                      }`}
+                                    >
+                                      Approve
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setGroupDetectedFaces(prev => prev.map(f => {
+                                          if (f.id === face.id) {
+                                            return { ...f, approved: false, rejected: true };
+                                          }
+                                          return f;
+                                        }));
+                                      }}
+                                      className={`px-3 py-1 rounded-lg text-[9px] font-bold transition cursor-pointer ${
+                                        face.rejected
+                                          ? 'bg-rose-600 text-white shadow-sm'
+                                          : 'bg-dark-900 text-dark-400 hover:text-white'
+                                      }`}
+                                    >
+                                      Reject
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="max-w-md mx-auto mt-8 pt-4 border-t border-dark-900/40">
+                        <button
+                          onClick={handleFinalizeAttendance}
+                          disabled={isSubmitting}
+                          className="w-full py-4 bg-violet-600 hover:bg-violet-500 text-white disabled:bg-dark-800 disabled:text-dark-500 rounded-2xl text-xs font-extrabold transition shadow-lg flex items-center justify-center space-x-2 cursor-pointer font-display"
+                        >
+                          {isSubmitting ? (
+                            <>
+                              <RefreshCw className="h-4.5 w-4.5 animate-spin" />
+                              <span>Recording Logs...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Check className="h-4.5 w-4.5" />
+                              <span>Confirm & Log Attendance ({groupDetectedFaces.filter(f => f.approved).length} Approved)</span>
+                            </>
+                          )}
+                        </button>
+                        <p className="text-[9px] text-dark-500 text-center mt-2 leading-normal">
+                          Please verify all matching candidates. Unapproved faces will not be marked in the database.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+            {/* Inline Registration Modal overlay */}
+            {registeringFaceId && (
+              <div className="fixed inset-0 bg-dark-950/85 backdrop-blur-md flex items-center justify-center z-50 p-4">
+                <div className="glass-panel max-w-md w-full p-6 rounded-2xl border border-dark-800 space-y-4 shadow-2xl relative">
+                  <button
+                    onClick={() => {
+                      setRegisteringFaceId(null);
+                      setNewEmpName('');
+                      setNewEmpMobile('');
+                      setNewEmpId('');
+                      setNewEmpError('');
+                    }}
+                    className="absolute top-4 right-4 text-dark-400 hover:text-white transition cursor-pointer p-1"
+                  >
+                    <XCircle className="h-5 w-5" />
+                  </button>
+                  
+                  <div className="flex items-center space-x-3.5">
+                    <div className="p-2.5 bg-violet-500/10 border border-violet-500/20 text-violet-400 rounded-xl">
+                      <Users className="h-5.5 w-5.5" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-display font-extrabold text-white">Register New Employee</h3>
+                      <p className="text-[10px] text-dark-400">Add the worker profile directly to the database.</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center justify-center bg-dark-950/50 p-4 rounded-xl border border-dark-900">
+                    <div className="text-center space-y-2">
+                      <img
+                        src={groupDetectedFaces.find(f => f.id === registeringFaceId)?.avatar}
+                        className="w-24 h-24 rounded-xl object-cover border border-violet-500/30 mx-auto shadow-inner"
+                        alt="Detected face crop"
+                      />
+                      <span className="text-[9px] bg-violet-500/20 text-violet-400 border border-violet-500/25 px-2 py-0.5 rounded font-bold">
+                        Detected Face Crop
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <form onSubmit={handleRegisterNewEmployee} className="space-y-3.5 text-xs">
+                    {newEmpError && (
+                      <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-455 text-xs rounded-xl flex items-center space-x-2">
+                        <XCircle className="h-4 w-4 flex-shrink-0" />
+                        <span>{newEmpError}</span>
+                      </div>
+                    )}
+                    
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-dark-400 uppercase">Full Name <span className="text-rose-455">*</span></label>
+                      <input
+                        type="text"
+                        value={newEmpName}
+                        onChange={(e) => setNewEmpName(e.target.value)}
+                        className="w-full bg-dark-950 border border-dark-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-violet-500"
+                        placeholder="e.g. John Doe"
+                        required
+                      />
+                    </div>
+                    
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-dark-400 uppercase">Mobile Number <span className="text-rose-455">*</span></label>
+                      <input
+                        type="tel"
+                        value={newEmpMobile}
+                        onChange={(e) => setNewEmpMobile(e.target.value)}
+                        className="w-full bg-dark-950 border border-dark-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-violet-500"
+                        placeholder="e.g. 9876543210"
+                        required
+                      />
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-dark-400 uppercase">Employee ID (Optional)</label>
+                        <input
+                          type="text"
+                          value={newEmpId}
+                          onChange={(e) => setNewEmpId(e.target.value)}
+                          className="w-full bg-dark-950 border border-dark-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-violet-500"
+                          placeholder="Auto-generated if empty"
+                        />
+                      </div>
+                      
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-dark-400 uppercase">Department</label>
+                        <select
+                          value={newEmpDept}
+                          onChange={(e) => setNewEmpDept(e.target.value)}
+                          className="w-full bg-dark-950 border border-dark-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-violet-500 cursor-pointer"
+                        >
+                          <option value="General">General</option>
+                          <option value="Operations">Operations</option>
+                          <option value="Production">Production</option>
+                          <option value="HR">HR</option>
+                          <option value="Sales">Sales</option>
+                        </select>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-dark-400 uppercase">Designation</label>
+                      <input
+                        type="text"
+                        value={newEmpDesig}
+                        onChange={(e) => setNewEmpDesig(e.target.value)}
+                        className="w-full bg-dark-950 border border-dark-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-violet-500"
+                        placeholder="e.g. Staff"
+                      />
+                    </div>
+                    
+                    <div className="flex space-x-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRegisteringFaceId(null);
+                          setNewEmpName('');
+                          setNewEmpMobile('');
+                          setNewEmpId('');
+                          setNewEmpError('');
+                        }}
+                        className="flex-1 py-2.5 bg-dark-900 border border-dark-800 hover:bg-dark-800 text-dark-300 font-bold rounded-xl text-center cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-500 text-white font-bold rounded-xl shadow-lg cursor-pointer"
+                      >
+                        Save & Link
+                      </button>
+                    </div>
+                  </form>
                 </div>
               </div>
             )}
           </div>
+        </div>
       </div>
-    </div>
   );
 }

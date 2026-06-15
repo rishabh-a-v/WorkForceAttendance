@@ -31,7 +31,6 @@ export default function App() {
   });
 
   const [pendingReviewsCount, setPendingReviewsCount] = useState(0);
-  const [loginInitialTab, setLoginInitialTab] = useState('admin');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
@@ -53,7 +52,6 @@ export default function App() {
   const handleLoginSuccess = (role, user) => {
     setCurrentUser(user);
     setPortalRole(role);
-    setLoginInitialTab(role);
     localStorage.setItem('wf_session_user', JSON.stringify(user));
     localStorage.setItem('wf_session_role', role);
 
@@ -71,7 +69,6 @@ export default function App() {
   const handleLogout = () => {
     setCurrentUser(null);
     setPortalRole('admin');
-    setLoginInitialTab('admin');
     localStorage.removeItem('wf_session_user');
     localStorage.removeItem('wf_session_role');
     localStorage.removeItem('wf_employee_login');
@@ -81,7 +78,6 @@ export default function App() {
   const handleSwitchRole = (targetRole) => {
     setCurrentUser(null);
     setPortalRole(targetRole);
-    setLoginInitialTab(targetRole);
     localStorage.removeItem('wf_session_user');
     localStorage.removeItem('wf_session_role');
     localStorage.removeItem('wf_employee_login');
@@ -121,7 +117,6 @@ export default function App() {
     return (
       <Login 
         onLoginSuccess={handleLoginSuccess} 
-        initialTab={loginInitialTab} 
       />
     );
   }

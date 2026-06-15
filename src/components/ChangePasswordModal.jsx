@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Lock, KeyRound, Eye, EyeOff, CheckCircle2, AlertCircle } from 'lucide-react';
+import { X, KeyRound, Eye, EyeOff, CheckCircle2, AlertCircle } from 'lucide-react';
 import { dbService } from '../db/dbService';
 
 export default function ChangePasswordModal({ onClose }) {

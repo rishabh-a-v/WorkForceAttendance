@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { 
   Camera, 
   MapPin, 
-  CheckCircle, 
   Clock, 
   UserCheck, 
   UserMinus,
@@ -12,14 +11,12 @@ import {
   Users,
   ShieldCheck,
   RefreshCw,
-  Sliders,
   StopCircle,
   Zap,
   ZapOff
 } from 'lucide-react';
-import { dbService, WORKSITE, updateWorksiteCoords } from '../db/dbService';
+import { dbService } from '../db/dbService';
 import { 
-  calculateDistanceInMeters, 
   compareBiometrics, 
   generateBiometrics, 
   recognizeFace, 
@@ -46,7 +43,6 @@ export default function AttendanceScanner() {
   });
   
   // App Config States
-  const [scannerMode, setScannerMode] = useState('camera'); // 'camera' or 'manual'
   const [isCheckIn, setIsCheckIn] = useState(true); // check-in mode vs check-out mode
 
 
@@ -67,12 +63,7 @@ export default function AttendanceScanner() {
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsData, setGpsData] = useState(null);
   
-  // Manual override states
-  const [manualEmpId, setManualEmpId] = useState('');
-  const [manualType, setManualType] = useState('checkin');
-  const [manualTime, setManualTime] = useState(new Date().toISOString().slice(0, 16));
-  const [manualReason, setManualReason] = useState('');
-  const [manualSuccessMsg, setManualSuccessMsg] = useState('');
+
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -694,107 +685,6 @@ export default function AttendanceScanner() {
     }
     };
 
-  const handleManualOverrideSubmit = (e) => {
-    e.preventDefault();
-    setErrorMsg('');
-    setManualSuccessMsg('');
-    
-    if (!manualEmpId) {
-      setErrorMsg('Please select an employee profile to override.');
-      return;
-    }
-    
-    const targetEmp = employees.find(e => e.id === manualEmpId);
-    if (!targetEmp) return;
-    
-    const overrideDate = new Date(manualTime);
-    const today = overrideDate.toDateString();
-    const attendanceLogs = dbService.getAttendance();
-    
-    if (manualType === 'checkin') {
-      const alreadyCheckedIn = attendanceLogs.some(a => 
-        a.employeeId === targetEmp.id && 
-        new Date(a.checkInTime).toDateString() === today
-      );
-      if (alreadyCheckedIn) {
-        setErrorMsg(`Override rejected: ${targetEmp.name} has already checked in on this date.`);
-        return;
-      }
-
-      const attRecord = {
-        id: 'ATT' + Math.floor(1000 + Math.random() * 9000),
-        employeeId: targetEmp.id,
-        employeeName: targetEmp.name,
-        checkInTime: overrideDate.toISOString(),
-        checkOutTime: null,
-        latitude: WORKSITE.LATITUDE,
-        longitude: WORKSITE.LONGITUDE,
-        checkOutLatitude: null,
-        checkOutLongitude: null,
-        confidence: 100, // Manual overrides get 100% confidence credit
-        verificationStatus: 'Approved',
-        attendanceStatus: 'Valid Location'
-      };
-
-      const res = dbService.saveAttendance(attRecord);
-      if (res.success) {
-        dbService.savePhotos({
-          id: 'PH' + Math.floor(1000 + Math.random() * 9000),
-          attendanceId: attRecord.id,
-          originalPhoto: targetEmp.avatar,
-          croppedFace: targetEmp.avatar,
-          timestamp: new Date().toISOString()
-        });
-
-        dbService.logAction(
-          'Manual Override',
-          'System Admin',
-          null,
-          JSON.stringify(attRecord),
-          `Supervisor override check-in logged for ${targetEmp.name}. Justification: ${manualReason || 'Admin adjustment'}.`
-        );
-
-        setManualSuccessMsg(`Clock-In override successfully logged for ${targetEmp.name}.`);
-        setManualReason('');
-      } else {
-        setErrorMsg(res.error);
-      }
-    } else {
-      // Manual Clock-Out
-      const activeCheckIn = attendanceLogs.find(a => a.employeeId === targetEmp.id && !a.checkOutTime);
-      if (!activeCheckIn) {
-        setErrorMsg(`Override rejected: No active shift clock-in found for ${targetEmp.name}.`);
-        return;
-      }
-
-      const oldValue = JSON.stringify(activeCheckIn);
-      const updateFields = {
-        checkOutTime: overrideDate.toISOString(),
-        attendanceStatus: 'Valid Location',
-        checkOutLatitude: WORKSITE.LATITUDE,
-        checkOutLongitude: WORKSITE.LONGITUDE
-      };
-
-      const res = dbService.updateAttendance(activeCheckIn.id, updateFields);
-      if (res.success) {
-        dbService.logAction(
-          'Manual Override',
-          'System Admin',
-          oldValue,
-          JSON.stringify({ ...activeCheckIn, ...updateFields }),
-          `Supervisor override clock-out logged for ${targetEmp.name}. Justification: ${manualReason || 'Admin adjustment'}.`
-        );
-
-        setManualSuccessMsg(`Clock-Out override successfully logged for ${targetEmp.name}.`);
-        setManualReason('');
-      } else {
-        setErrorMsg(res.error);
-      }
-    }
-
-    updateActiveShift();
-  };
-
   const toggleDiagnostics = (faceId) => {
     setShowDiagnostics(prev => ({
       ...prev,
@@ -867,35 +757,50 @@ export default function AttendanceScanner() {
 
         {/* Action Controls Panel */}
         <div className="glass-card p-5 rounded-2xl border border-dark-800 flex items-center justify-between">
-          <div className="space-y-1">
-            <p className="text-[10px] uppercase font-bold text-dark-400">Terminal Mode</p>
-            <div className="flex bg-dark-950 p-1 rounded-xl border border-dark-850 mt-1">
+          <div className="space-y-1 w-full">
+            <p className="text-[10px] uppercase font-bold text-dark-400">Clocking Mode Action</p>
+            <div className="grid grid-cols-2 bg-dark-950 p-1 rounded-xl border border-dark-850 mt-1 max-w-[280px]">
               <button
-                onClick={() => { setScannerMode('camera'); setManualSuccessMsg(''); setErrorMsg(''); }}
-                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition ${
-                  scannerMode === 'camera' 
-                    ? 'bg-brand-600 text-white glow-blue' 
+                type="button"
+                onClick={() => { 
+                  setIsCheckIn(true); 
+                  setSuccessCount(null); 
+                  handleStopCamera();
+                  sessionLoggedIds.current = new Set();
+                  setSessionLogged([]);
+                }}
+                className={`py-1.5 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition ${
+                  isCheckIn 
+                    ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-extrabold shadow-sm' 
                     : 'text-dark-400 hover:text-white'
                 }`}
               >
-                Shift Terminal
+                <UserCheck className="h-4 w-4" />
+                <span>Clock In</span>
               </button>
               <button
-                onClick={() => { setScannerMode('manual'); setDetectedFaces([]); setScanImage(null); }}
-                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition ${
-                  scannerMode === 'manual' 
-                    ? 'bg-brand-600 text-white glow-blue' 
+                type="button"
+                onClick={() => { 
+                  setIsCheckIn(false); 
+                  setSuccessCount(null); 
+                  handleStopCamera();
+                  sessionLoggedIds.current = new Set();
+                  setSessionLogged([]);
+                }}
+                className={`py-1.5 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition ${
+                  !isCheckIn 
+                    ? 'bg-brand-500/10 border border-brand-500/20 text-brand-400 font-extrabold shadow-sm' 
                     : 'text-dark-400 hover:text-white'
                 }`}
               >
-                Manual Entry
+                <UserMinus className="h-4 w-4" />
+                <span>Clock Out</span>
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {scannerMode === 'camera' ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
           {/* Left 2 Columns: Video Scanner Panel */}
@@ -1080,50 +985,7 @@ export default function AttendanceScanner() {
             <div className="glass-panel p-6 rounded-2xl border border-dark-800/60 space-y-5">
               <div>
                 <h3 className="text-sm font-display font-extrabold text-white">Shift Registry Dispatcher</h3>
-                <p className="text-[10px] text-dark-400 mt-1">Define check-in/out mode and save attendance to shift log records.</p>
-              </div>
-
-              {/* Mode Toggle */}
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold text-dark-400 uppercase">Clocking Mode Action</label>
-                <div className="grid grid-cols-2 bg-dark-950 p-1 rounded-xl border border-dark-850">
-                  <button
-                    type="button"
-                    onClick={() => { 
-                      setIsCheckIn(true); 
-                      setSuccessCount(null); 
-                      handleStopCamera();
-                      sessionLoggedIds.current = new Set();
-                      setSessionLogged([]);
-                    }}
-                    className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition ${
-                      isCheckIn 
-                        ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-extrabold shadow-sm' 
-                        : 'text-dark-400 hover:text-white'
-                    }`}
-                  >
-                    <UserCheck className="h-4 w-4" />
-                    <span>Clock In Shift</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { 
-                      setIsCheckIn(false); 
-                      setSuccessCount(null); 
-                      handleStopCamera();
-                      sessionLoggedIds.current = new Set();
-                      setSessionLogged([]);
-                    }}
-                    className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition ${
-                      !isCheckIn 
-                        ? 'bg-brand-500/10 border border-brand-500/20 text-brand-400 font-extrabold shadow-sm' 
-                        : 'text-dark-400 hover:text-white'
-                    }`}
-                  >
-                    <UserMinus className="h-4 w-4" />
-                    <span>Clock Out Shift</span>
-                  </button>
-                </div>
+                <p className="text-[10px] text-dark-400 mt-1">Scan and save attendance to shift log records.</p>
               </div>
 
               {/* Error Box */}
@@ -1257,96 +1119,9 @@ export default function AttendanceScanner() {
             </div>
           </div>
         </div>
-      ) : (
-        /* Manual Override entry console view */
-        <div className="max-w-xl mx-auto glass-panel p-6 rounded-2xl border border-dark-800/60 space-y-4">
-          <div>
-            <h3 className="text-sm font-display font-extrabold text-white flex items-center space-x-2">
-              <Sliders className="h-4.5 w-4.5 text-brand-400" />
-              <span>Supervisor Manual Log Override</span>
-            </h3>
-            <p className="text-[10px] text-dark-400 mt-1">
-              Bypasses spatial matching vectors and locks coordinates validation. Authenticated manually by administrative supervisors.
-            </p>
-          </div>
-
-          <form onSubmit={handleManualOverrideSubmit} className="space-y-4 text-xs">
-            {errorMsg && (
-              <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs rounded-xl flex items-center space-x-2">
-                <XCircle className="h-4 w-4 flex-shrink-0" />
-                <span>{errorMsg}</span>
-              </div>
-            )}
-            
-            {manualSuccessMsg && (
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded-xl flex items-center space-x-2">
-                <CheckCircle className="h-4 w-4 flex-shrink-0" />
-                <span>{manualSuccessMsg}</span>
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-dark-400 uppercase">Employee Profile</label>
-                <select
-                  value={manualEmpId}
-                  onChange={(e) => setManualEmpId(e.target.value)}
-                  className="w-full bg-dark-950 border border-dark-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-brand-500"
-                >
-                  <option value="">Select Employee...</option>
-                  {employees.map(emp => (
-                    <option key={emp.id} value={emp.id}>{emp.name} ({emp.id})</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-dark-400 uppercase">Transaction Action</label>
-                <select
-                  value={manualType}
-                  onChange={(e) => setManualType(e.target.value)}
-                  className="w-full bg-dark-950 border border-dark-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-brand-500"
-                >
-                  <option value="checkin">Clock In Manual</option>
-                  <option value="checkout">Clock Out Manual</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-dark-400 uppercase">Timestamp Lock</label>
-              <input
-                type="datetime-local"
-                value={manualTime}
-                onChange={(e) => setManualTime(e.target.value)}
-                className="w-full bg-dark-950 border border-dark-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500"
-                required
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-dark-400 uppercase">Override Justification Notes</label>
-              <textarea
-                value={manualReason}
-                onChange={(e) => setManualReason(e.target.value)}
-                placeholder="Specify override reasons (e.g. employee left phone, webcam network error, etc.)..."
-                className="w-full bg-dark-950 border border-dark-800 rounded-xl px-3 py-2 text-xs text-white h-20 resize-none focus:outline-none focus:border-brand-500"
-                required
-              />
-            </div>
-
-            <button
-              type="submit"
-              className="w-full py-3 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg glow-blue transition"
-            >
-              Sign Override Card & Save Log
-            </button>
-          </form>
-        </div>
-      )}
 
       {/* Grid of Results (Single or Multiple Detected Faces) */}
-      {scannerMode === 'camera' && detectedFaces.length > 0 && (
+      {detectedFaces.length > 0 && (
         <div className="space-y-4">
           <h4 className="font-display font-extrabold text-sm text-white">Detected Face Output Results ({detectedFaces.length})</h4>
           
