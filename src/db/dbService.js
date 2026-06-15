@@ -241,9 +241,14 @@ const runSupabase = async (method, path, body) => {
       return await sbFetch('/attendance?select=*');
     }
     if (method === 'POST') {
+      const cleanBody = { ...body };
+      delete cleanBody.qualityScore;
+      delete cleanBody.livenessScore;
+      delete cleanBody.similarityScore;
+
       await sbFetch('/attendance', {
         method: 'POST',
-        body: JSON.stringify(body)
+        body: JSON.stringify(cleanBody)
       });
       return { success: true };
     }
@@ -251,9 +256,14 @@ const runSupabase = async (method, path, body) => {
   if (path.startsWith('/api/attendance/')) {
     const attId = path.split('/').pop();
     if (method === 'PUT') {
+      const cleanBody = { ...body };
+      delete cleanBody.qualityScore;
+      delete cleanBody.livenessScore;
+      delete cleanBody.similarityScore;
+
       await sbFetch(`/attendance?id=eq.${attId}`, {
         method: 'PATCH',
-        body: JSON.stringify(body)
+        body: JSON.stringify(cleanBody)
       });
       return { success: true };
     }
@@ -713,13 +723,23 @@ export const dbService = {
   
   saveAttendance: (record) => {
     const attendance = get(KEYS.ATTENDANCE);
-    const dateStr = new Date(record.checkInTime).toDateString();
     
-    // Strictly prevent duplicate check-ins on the same calendar date
-    const duplicate = attendance.some(a => 
-      a.employeeId === record.employeeId && 
-      new Date(a.checkInTime).toDateString() === dateStr
-    );
+    let duplicate = false;
+    if (record.employeeId && record.checkInTime) {
+      const dateStr = new Date(record.checkInTime).toDateString();
+      duplicate = attendance.some(a => 
+        a.employeeId === record.employeeId && 
+        a.checkInTime &&
+        new Date(a.checkInTime).toDateString() === dateStr
+      );
+    } else if (record.employeeName && record.entryDate) {
+      // New supervisor workflow duplicate check
+      duplicate = attendance.some(a => 
+        a.employeeName === record.employeeName && 
+        a.entryDate === record.entryDate &&
+        a.jobNumber === record.jobNumber
+      );
+    }
     
     if (duplicate && record.employeeId !== 'UNKNOWN') {
       return { success: false, error: 'Employee has already checked in today.' };
