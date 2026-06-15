@@ -129,20 +129,25 @@ export default function SupervisorPortal({ currentUser, onLogout }) {
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setGpsData({
-          lat: position.coords.latitude.toFixed(6),
-          lon: position.coords.longitude.toFixed(6),
-          status: 'GPS Captured'
-        });
-        setGpsLoading(false);
-      },
-      (error) => {
-        fetchIpLocationFallback(error.message);
-      },
-      { enableHighAccuracy: true, timeout: 6000 }
-    );
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setGpsData({
+            lat: position.coords.latitude.toFixed(6),
+            lon: position.coords.longitude.toFixed(6),
+            status: 'GPS Captured'
+          });
+          setGpsLoading(false);
+        },
+        (error) => {
+          fetchIpLocationFallback(error.message);
+        },
+        { enableHighAccuracy: true, timeout: 6000 }
+      );
+    } catch (e) {
+      console.warn("Synchronous Geolocation call failed, falling back to IP:", e);
+      fetchIpLocationFallback(e.message || 'Insecure context or location exception');
+    }
   };
 
   const stopGroupCamera = () => {
