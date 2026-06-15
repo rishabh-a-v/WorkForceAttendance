@@ -363,6 +363,8 @@ const runGoogleSheets = async (method, path, body) => {
       action = 'login';
     } else if (path === '/api/auth/password' && method === 'PUT') {
       action = 'changePassword';
+    } else if (path === '/api/upload-photo' && method === 'POST') {
+      action = 'uploadPhoto';
     }
 
     if (!action) return null;
@@ -392,6 +394,17 @@ const runGoogleSheets = async (method, path, body) => {
 
 const apiCall = async (method, path, body) => {
   if (BACKEND_PROVIDER === 'disabled') return null;
+  
+  // Photo uploads are always handled by Google Sheets (saving to Google Drive)
+  if (path === '/api/upload-photo') {
+    try {
+      return await runGoogleSheets(method, path, body);
+    } catch (err) {
+      console.error('[dbService] Upload photo to Sheets failed:', err);
+      return null;
+    }
+  }
+
   try {
     const isHybrid = BACKEND_PROVIDER === 'hybrid';
     
@@ -454,10 +467,9 @@ const translateDriveUrl = (url) => {
 const syncFromServer = async () => {
   if (!API_BASE) return;
   try {
-    const [employees, attendance, photos, auditLogs, worksite] = await Promise.all([
+    const [employees, attendance, auditLogs, worksite] = await Promise.all([
       apiCall('GET', '/api/employees'),
       apiCall('GET', '/api/attendance'),
-      apiCall('GET', '/api/photos'),
       apiCall('GET', '/api/audit-logs'),
       apiCall('GET', '/api/config/worksite'),
     ]);
@@ -490,19 +502,11 @@ const syncFromServer = async () => {
     }
     if (attendance) {
       const processedAttendance = attendance.map(att => {
-        if (att.originalPhotoUrl) att.originalPhotoUrl = translateDriveUrl(att.originalPhotoUrl);
-        if (att.croppedFaceUrl) att.croppedFaceUrl = translateDriveUrl(att.croppedFaceUrl);
+        if (att.groupPhotoUrl) att.groupPhotoUrl = translateDriveUrl(att.groupPhotoUrl);
+        if (att.faceImageUrl) att.faceImageUrl = translateDriveUrl(att.faceImageUrl);
         return att;
       });
       localStorage.setItem('wf_attendance', JSON.stringify(processedAttendance));
-    }
-    if (photos) {
-      const processedPhotos = photos.map(ph => {
-        if (ph.originalPhoto) ph.originalPhoto = translateDriveUrl(ph.originalPhoto);
-        if (ph.croppedFace) ph.croppedFace = translateDriveUrl(ph.croppedFace);
-        return ph;
-      });
-      localStorage.setItem('wf_attendance_photos', JSON.stringify(processedPhotos));
     }
     if (auditLogs)  localStorage.setItem('wf_audit_logs',           JSON.stringify(auditLogs));
     if (worksite && worksite.latitude) {
@@ -925,6 +929,10 @@ export const dbService = {
     }
   },
 
+  uploadPhoto: async (base64, filename) => {
+    return await apiCall('POST', '/api/upload-photo', { base64, filename });
+  },
+
   // --- DB Initialization ---
   initialize: () => {
     // Force a fresh start clear if not already wiped
@@ -1024,7 +1032,7 @@ dbService.deleteAttendance = (recordId) => {
   return result;
 };
 
-const compressImageBase64 = (base64Str, maxChars = 48000) => {
+export const compressImageBase64 = (base64Str, maxChars = 48000) => {
   return new Promise((resolve) => {
     if (!base64Str || base64Str.length <= maxChars || !base64Str.startsWith('data:image')) {
       return resolve(base64Str);
@@ -1061,39 +1069,6 @@ const compressImageBase64 = (base64Str, maxChars = 48000) => {
     img.onerror = () => resolve(base64Str);
     img.src = base64Str;
   });
-};
-
-dbService.savePhotos = async (photoRecord) => {
-  // Save original high quality photos locally first
-  _orig.savePhotos(photoRecord);
-  
-  // Compress photos and send to backend
-  try {
-    const [compressedOriginal, compressedCropped] = await Promise.all([
-      compressImageBase64(photoRecord.originalPhoto, 48000),
-      compressImageBase64(photoRecord.croppedFace, 48000)
-    ]);
-    
-    const recordToPost = {
-      ...photoRecord,
-      originalPhoto: compressedOriginal,
-      croppedFace: compressedCropped
-    };
-    
-    apiCall('POST', '/api/photos', recordToPost);
-  } catch (error) {
-    console.error('[dbService] Image compression failed, posting original:', error);
-    apiCall('POST', '/api/photos', photoRecord);
-  }
-};
-
-dbService.authenticate = (username, password) => {
-  // Auth always goes to backend first when available, falls back to localStorage
-  if (API_BASE) {
-    return apiCall('POST', '/api/auth/login', { username, password })
-      .then(res => res || _orig.authenticate(username, password));
-  }
-  return Promise.resolve(_orig.authenticate(username, password));
 };
 
 dbService.changePassword = (userId, currentPassword, newPassword, isAdmin) => {

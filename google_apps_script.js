@@ -4,10 +4,44 @@ const SPREADSHEET_ID = '1tBWz2uM_KDa09n0pOTMri99nfEjhwLpDJWGuGddFtt8'; // Paste 
 const DRIVE_FOLDER_ID = ''; // Paste your Google Drive Folder ID here to save photos to a specific folder, or leave empty to auto-create
 
 const HEADERS = {
-  Employees: ['id', 'name', 'designation', 'department', 'mobile', 'joinDate', 'status', 'role', 'password', 'registeredPhotos', 'biometrics'],
-  Attendance: ['id', 'employeeId', 'employeeName', 'checkInTime', 'checkOutTime', 'latitude', 'longitude', 'confidence', 'qualityScore', 'livenessScore', 'similarityScore', 'verificationStatus', 'attendanceStatus', 'originalPhotoUrl', 'croppedFaceUrl', 'checkOutLatitude', 'checkOutLongitude'],
+  Employees: ['id', 'name', 'mobile', 'avatar', 'biometrics', 'registeredAt'],
+  Attendance: [
+    'Entry Date',
+    'Supervisor Name',
+    'Supervisor Phone Number',
+    'Branch',
+    'Site Name',
+    'Job Number',
+    'Employee Name',
+    'Phone Number',
+    'Start Time',
+    'End Time',
+    'Start Latitude',
+    'Start Longitude',
+    'End Latitude',
+    'End Longitude',
+    'Attendance Status'
+  ],
   AuditLogs: ['id', 'actionType', 'user', 'timestamp', 'oldValue', 'newValue', 'ipAddress', 'deviceInfo', 'remarks'],
   Config: ['key', 'value']
+};
+
+const HEADER_KEY_MAP = {
+  'Entry Date': 'entryDate',
+  'Supervisor Name': 'supervisorName',
+  'Supervisor Phone Number': 'supervisorPhone',
+  'Branch': 'branch',
+  'Site Name': 'siteName',
+  'Job Number': 'jobNumber',
+  'Employee Name': 'employeeName',
+  'Phone Number': 'employeePhone',
+  'Start Time': 'startTime',
+  'End Time': 'endTime',
+  'Start Latitude': 'startLatitude',
+  'Start Longitude': 'startLongitude',
+  'End Latitude': 'endLatitude',
+  'End Longitude': 'endLongitude',
+  'Attendance Status': 'attendanceStatus'
 };
 
 function setup() {
@@ -31,25 +65,33 @@ function processAction(payload) {
       result = readSheet(ss.getSheetByName('Employees'), HEADERS.Employees);
       break;
     case 'saveEmployee':
-      if (payload.registeredPhotos && Array.isArray(payload.registeredPhotos)) {
-        payload.registeredPhotos = payload.registeredPhotos.map((photo, index) => {
-          if (typeof photo === 'string' && photo.startsWith('data:image')) {
-            const filename = 'emp_' + (payload.id || 'new') + '_photo_' + index + '.jpg';
-            return saveBase64ImageToDrive(photo, filename);
+      if (payload.avatar && typeof payload.avatar === 'string' && payload.avatar.startsWith('data:image')) {
+        const filename = 'emp_' + (payload.id || 'new') + '_avatar_' + Date.now() + '.jpg';
+        payload.avatar = saveBase64ImageToDrive(payload.avatar, filename);
+      }
+      if (payload.samples && Array.isArray(payload.samples)) {
+        payload.samples = payload.samples.map((sample, index) => {
+          if (sample.avatar && typeof sample.avatar === 'string' && sample.avatar.startsWith('data:image')) {
+            const filename = 'emp_' + (payload.id || 'new') + '_sample_' + index + '_' + Date.now() + '.jpg';
+            sample.avatar = saveBase64ImageToDrive(sample.avatar, filename);
           }
-          return photo;
+          return sample;
         });
       }
       result = saveRow(ss.getSheetByName('Employees'), HEADERS.Employees, payload);
       break;
     case 'updateEmployee':
-      if (payload.registeredPhotos && Array.isArray(payload.registeredPhotos)) {
-        payload.registeredPhotos = payload.registeredPhotos.map((photo, index) => {
-          if (typeof photo === 'string' && photo.startsWith('data:image')) {
-            const filename = 'emp_' + (payload.id || 'new') + '_photo_' + index + '.jpg';
-            return saveBase64ImageToDrive(photo, filename);
+      if (payload.avatar && typeof payload.avatar === 'string' && payload.avatar.startsWith('data:image')) {
+        const filename = 'emp_' + (payload.id || 'new') + '_avatar_' + Date.now() + '.jpg';
+        payload.avatar = saveBase64ImageToDrive(payload.avatar, filename);
+      }
+      if (payload.samples && Array.isArray(payload.samples)) {
+        payload.samples = payload.samples.map((sample, index) => {
+          if (sample.avatar && typeof sample.avatar === 'string' && sample.avatar.startsWith('data:image')) {
+            const filename = 'emp_' + (payload.id || 'new') + '_sample_' + index + '_' + Date.now() + '.jpg';
+            sample.avatar = saveBase64ImageToDrive(sample.avatar, filename);
           }
-          return photo;
+          return sample;
         });
       }
       result = updateRow(ss.getSheetByName('Employees'), HEADERS.Employees, payload.id, payload);
@@ -69,24 +111,13 @@ function processAction(payload) {
     case 'deleteAttendance':
       result = deleteRow(ss.getSheetByName('Attendance'), payload.id);
       break;
-    case 'savePhotos':
-      if (payload.originalPhoto && typeof payload.originalPhoto === 'string' && payload.originalPhoto.startsWith('data:image')) {
-        const filename = 'att_' + (payload.attendanceId || 'raw') + '_original_' + Date.now() + '.jpg';
-        payload.originalPhoto = saveBase64ImageToDrive(payload.originalPhoto, filename);
-      }
-      if (payload.croppedFace && typeof payload.croppedFace === 'string' && payload.croppedFace.startsWith('data:image')) {
-        const filename = 'att_' + (payload.attendanceId || 'raw') + '_crop_' + Date.now() + '.jpg';
-        payload.croppedFace = saveBase64ImageToDrive(payload.croppedFace, filename);
-      }
-      result = saveRow(ss.getSheetByName('Photos') || createPhotosSheet(ss), ['id', 'attendanceId', 'originalPhoto', 'croppedFace', 'timestamp'], payload);
-      
-      // Also link the generated Drive URLs back to the matching row in the Attendance sheet
-      const attSheet = ss.getSheetByName('Attendance');
-      if (attSheet && payload.attendanceId) {
-        updateRow(attSheet, HEADERS.Attendance, payload.attendanceId, {
-          originalPhotoUrl: payload.originalPhoto,
-          croppedFaceUrl: payload.croppedFace
-        });
+    case 'uploadPhoto':
+      if (payload.base64 && typeof payload.base64 === 'string') {
+        const filename = payload.filename || ('img_' + Date.now() + '.jpg');
+        const url = saveBase64ImageToDrive(payload.base64, filename);
+        result = { success: true, url };
+      } else {
+        result = { success: false, error: 'No base64 data provided' };
       }
       break;
     case 'getPhotos':
@@ -230,7 +261,8 @@ function readSheet(sheet, headers) {
           // Keep string
         }
       }
-      obj[h] = val;
+      const key = HEADER_KEY_MAP[h] || h;
+      obj[key] = val;
     });
     return obj;
   });
@@ -238,7 +270,8 @@ function readSheet(sheet, headers) {
 
 function saveRow(sheet, headers, data) {
   const row = headers.map(h => {
-    let val = data[h];
+    const key = HEADER_KEY_MAP[h] || h;
+    let val = data[key];
     if (typeof val === 'object' && val !== null) {
       return JSON.stringify(val);
     }
@@ -265,12 +298,14 @@ function updateRow(sheet, headers, id, updatedFields) {
     if (typeof val === 'string' && (val.startsWith('{') || val.startsWith('['))) {
       try { val = JSON.parse(val); } catch(e) {}
     }
-    obj[h] = val;
+    const key = HEADER_KEY_MAP[h] || h;
+    obj[key] = val;
   });
   
   const finalObj = { ...obj, ...updatedFields };
   const newRowValues = headers.map(h => {
-    let val = finalObj[h];
+    const key = HEADER_KEY_MAP[h] || h;
+    let val = finalObj[key];
     if (typeof val === 'object' && val !== null) {
       return JSON.stringify(val);
     }
