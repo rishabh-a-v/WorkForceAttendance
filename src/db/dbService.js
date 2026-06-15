@@ -374,11 +374,19 @@ const apiCall = async (method, path, body) => {
 
       if (!action) return null;
 
-      const url = `${API_BASE}?action=${encodeURIComponent(action)}&data=${encodeURIComponent(JSON.stringify(body || {}))}&_t=${Date.now()}`;
-      const res = await fetch(url, {
-        method: 'GET'
-      });
-      return res.ok ? res.json() : null;
+      if (method === 'GET') {
+        const url = `${API_BASE}?action=${encodeURIComponent(action)}&data=${encodeURIComponent(JSON.stringify(body || {}))}&_t=${Date.now()}`;
+        const res = await fetch(url, {
+          method: 'GET'
+        });
+        return res.ok ? res.json() : null;
+      } else {
+        const res = await fetch(API_BASE, {
+          method: 'POST',
+          body: JSON.stringify({ action, ...body })
+        });
+        return res.ok ? res.json() : null;
+      }
     }
 
     const res = await fetch(`${API_BASE}${path}`, {
