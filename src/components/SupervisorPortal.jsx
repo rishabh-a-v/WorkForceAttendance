@@ -13,8 +13,7 @@ import {
   RefreshCw,
   Zap,
   ZapOff,
-  StopCircle,
-  Upload
+  StopCircle
 } from 'lucide-react';
 import { dbService } from '../db/dbService';
 import { 
@@ -347,37 +346,6 @@ export default function SupervisorPortal({ currentUser }) {
     stopGroupCamera();
     await processGroupPhoto(canvas);
   };
-
-  // Group Photo upload handler
-  const handleGroupPhotoUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    
-    setGroupErrorMsg('');
-    setGroupSuccessCount(null);
-    setGroupDetectedFaces([]);
-    
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = async () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-        
-        const dataUrl = event.target.result;
-        setGroupScanImage(dataUrl);
-        setPhotoDimensions({ width: img.width, height: img.height });
-        
-        await processGroupPhoto(canvas);
-      };
-      img.src = event.target.result;
-    };
-    reader.readAsDataURL(file);
-  };
-
   // Core processing pipeline: Face detection & Recognition
   const processGroupPhoto = async (canvas) => {
     setIsGroupScanning(true);
@@ -911,26 +879,16 @@ export default function SupervisorPortal({ currentUser }) {
                               <Camera className="h-10 w-10 text-violet-400 animate-pulse" />
                               <div className="space-y-1">
                                 <p className="text-xs font-semibold text-white">Attendance via Group Photo</p>
-                                <p className="text-[10px] text-dark-400">Capture a live group image or upload an existing photo to match multiple employees.</p>
+                                <p className="text-[10px] text-dark-400">Capture a live group image to match multiple employees.</p>
                               </div>
-                              <div className="flex flex-col sm:flex-row gap-3 w-full">
+                              <div className="flex justify-center w-full">
                                 <button
                                   onClick={() => startGroupCamera()}
-                                  className="flex-1 px-4 py-2.5 bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold rounded-xl shadow-lg transition cursor-pointer flex items-center justify-center space-x-2"
+                                  className="w-full px-4 py-2.5 bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold rounded-xl shadow-lg transition cursor-pointer flex items-center justify-center space-x-2"
                                 >
                                   <Video className="h-4 w-4" />
                                   <span>Capture Webcam</span>
                                 </button>
-                                <label className="flex-1 px-4 py-2.5 bg-dark-900 hover:bg-dark-800 border border-dark-800 text-dark-300 text-xs font-bold rounded-xl shadow-lg transition cursor-pointer flex items-center justify-center space-x-2 text-center">
-                                  <Upload className="h-4 w-4 text-violet-400" />
-                                  <span>Upload Photo</span>
-                                  <input
-                                    type="file"
-                                    accept="image/*"
-                                    className="hidden"
-                                    onChange={handleGroupPhotoUpload}
-                                  />
-                                </label>
                               </div>
                             </div>
                           )}

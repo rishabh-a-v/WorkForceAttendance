@@ -14,7 +14,7 @@ import {
   Pencil
 } from 'lucide-react';
 import { dbService } from '../db/dbService';
-import { extractBiometricsFromCanvas, trainEmployeeFace, detectFaceInCanvas, detectFaceInFile, getFaceDescriptor, assessFaceQuality, alignAndCropFace, getNormalFrontCameraDeviceId } from '../utils/faceEngine';
+import { extractBiometricsFromCanvas, trainEmployeeFace, detectFaceInCanvas, getFaceDescriptor, assessFaceQuality, alignAndCropFace, getNormalFrontCameraDeviceId } from '../utils/faceEngine';
 
 const generateRandomEmpId = () => {
   return 'EMP' + Math.floor(100 + Math.random() * 900);
@@ -599,83 +599,7 @@ export default function RegisterEmployee() {
     }
   };
 
-  const handleSampleFileUpload = async (e) => {
-    if (!selectedEmpForSamples) return;
-    const file = e.target.files?.[0];
-    if (!file) return;
 
-    setSampleErrorMsg('');
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const img = new Image();
-      img.onload = async () => {
-        try {
-          // Downscale to ≤600px
-          const maxDim = 600;
-          let w = img.width;
-          let h = img.height;
-          if (w > maxDim || h > maxDim) {
-            if (w > h) { h = Math.round((h * maxDim) / w); w = maxDim; }
-            else        { w = Math.round((w * maxDim) / h); h = maxDim; }
-          }
-          const canvas = document.createElement('canvas');
-          canvas.width = w;
-          canvas.height = h;
-          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-
-          // Use the file-optimised detector
-          const faceBox = await detectFaceInFile(canvas);
-
-          // Align & crop
-          const alignedCanvas = alignAndCropFace(canvas, faceBox.landmarks || faceBox);
-          const cropBase64 = alignedCanvas.toDataURL('image/jpeg', 0.85);
-
-          // Extract descriptor
-          const imgVector = await getFaceDescriptor(alignedCanvas);
-          if (!imgVector) {
-            setSampleErrorMsg('Failed to extract face descriptors from this image. Please use a clearer portrait.');
-            return;
-          }
-
-          const newSample = {
-            id: `SAMP_${selectedEmpForSamples.id}_${Date.now()}`,
-            vector: imgVector,
-            avatar: cropBase64,
-            quality: {
-              blur: 18.0,
-              brightness: 120,
-              contrast: 50,
-              eyeVisible: faceBox.detected,
-              headYaw: 1.0,
-              headPitch: 1.0,
-              isPartial: false,
-              passed: true
-            },
-            registeredAt: new Date().toISOString()
-          };
-
-          const res = dbService.addEmployeeSample(selectedEmpForSamples.id, newSample);
-          if (res.success) {
-            setSelectedEmpForSamples(res.employee);
-            setSampleErrorMsg('');
-            setEmployees(dbService.getEmployees());
-            if (!faceBox.detected) {
-              setSampleErrorMsg('ⓘ Auto-detection was uncertain — sample enrolled using centre-crop fallback.');
-            }
-          } else {
-            setSampleErrorMsg(res.error);
-          }
-        } catch (err) {
-          console.error('Sample file parsing error:', err);
-          setSampleErrorMsg(`Failed to process sample image file: ${err.message || err}`);
-        }
-      };
-      img.src = event.target.result;
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  };
 
   const filteredEmployees = employees.filter(e => 
     e.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1145,19 +1069,9 @@ export default function RegisterEmployee() {
                       >
                         Turn On Camera
                       </button>
-                      <span className="text-[10px] text-dark-500 font-bold">OR</span>
-                      <label className="px-4 py-2 bg-dark-900 hover:bg-dark-850 border border-dark-800 rounded-xl text-xs font-bold text-brand-400 transition cursor-pointer flex items-center justify-center">
-                        <span>Upload Sample File</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleSampleFileUpload}
-                          className="hidden"
-                        />
-                      </label>
                     </div>
                     <p className="text-[9px] text-dark-500 leading-relaxed max-w-[200px]">
-                      Capture or upload additional face samples in different angles or lighting to improve recognition accuracy.
+                      Capture additional face samples in different angles or lighting to improve recognition accuracy.
                     </p>
                   </div>
                 )}
