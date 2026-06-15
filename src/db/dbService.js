@@ -372,12 +372,16 @@ const runGoogleSheets = async (method, path, body) => {
     if (method === 'GET') {
       const url = `${API_BASE}?action=${encodeURIComponent(action)}&data=${encodeURIComponent(JSON.stringify(sheetsBody || {}))}&_t=${Date.now()}`;
       const res = await fetch(url, {
-        method: 'GET'
+        method: 'GET',
+        mode: 'cors',
+        credentials: 'omit'
       });
       return res.ok ? res.json() : null;
     } else {
       const res = await fetch(API_BASE, {
         method: 'POST',
+        mode: 'cors',
+        credentials: 'omit',
         body: JSON.stringify({ action, ...sheetsBody })
       });
       return res.ok ? res.json() : null;
@@ -386,6 +390,8 @@ const runGoogleSheets = async (method, path, body) => {
 
   const res = await fetch(`${API_BASE}${path}`, {
     method,
+    mode: 'cors',
+    credentials: 'omit',
     headers: { 'Content-Type': 'application/json' },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
