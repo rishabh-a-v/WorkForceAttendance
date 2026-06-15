@@ -604,7 +604,7 @@ export default function SupervisorPortal({ currentUser, onLogout }) {
     setGroupScanStatusMsg('Saving checkout records and updating databases...');
 
     try {
-      const endTimestamp = new Date().toISOString();
+      const endTimestamp = new Date().toLocaleTimeString();
       const endLat = gpsData?.lat ? parseFloat(gpsData.lat) : null;
       const endLon = gpsData?.lon ? parseFloat(gpsData.lon) : null;
 
