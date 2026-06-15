@@ -616,6 +616,33 @@ export default function SupervisorPortal({ currentUser, onLogout }) {
     }
   };
 
+  const getActiveJobs = () => {
+    const allAttendance = dbService.getAttendance();
+    const supervisorOpenRecords = allAttendance.filter(a => 
+      a.supervisorName === currentUser.name && !a.endTime
+    );
+    
+    // Group by jobNumber
+    const jobsMap = {};
+    supervisorOpenRecords.forEach(rec => {
+      const jobNum = rec.jobNumber || 'N/A';
+      if (!jobsMap[jobNum]) {
+        jobsMap[jobNum] = {
+          jobNumber: jobNum,
+          siteName: rec.siteName || 'N/A',
+          employeeCount: 0,
+          startTime: rec.startTime,
+          entryDate: rec.entryDate,
+          records: []
+        };
+      }
+      jobsMap[jobNum].employeeCount += 1;
+      jobsMap[jobNum].records.push(rec);
+    });
+    
+    return Object.values(jobsMap);
+  };
+
   return (
     <div className="flex-1 flex flex-col overflow-y-auto px-4 py-6 md:p-8 select-none relative" style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}>
       
@@ -1074,6 +1101,56 @@ export default function SupervisorPortal({ currentUser, onLogout }) {
               <h1 className="text-xl font-black text-white">Job End Attendance</h1>
               <p className="text-xs text-dark-450">Close the attendance session and record departure timestamps</p>
             </div>
+          </div>
+
+          {/* Active Jobs List */}
+          <div className="space-y-3">
+            <h2 className="text-[10px] font-bold text-dark-450 uppercase tracking-wider">
+              Active Jobs under your supervision
+            </h2>
+            
+            {getActiveJobs().length > 0 ? (
+              <div className="grid grid-cols-1 gap-3">
+                {getActiveJobs().map((job) => (
+                  <button
+                    key={job.jobNumber}
+                    onClick={() => {
+                      setSearchJobNumber(job.jobNumber);
+                      setActiveSessionRecords(job.records);
+                      setSearchAttempted(true);
+                    }}
+                    className={`w-full text-left glass-panel rounded-2xl border transition p-4 flex items-center justify-between hover:scale-[1.01] active:scale-[0.99] cursor-pointer ${
+                      searchJobNumber === job.jobNumber 
+                        ? 'border-violet-500/80 bg-violet-500/8 shadow-violet-500/5' 
+                        : 'border-dark-800/80 hover:border-dark-700 bg-dark-900/40'
+                    }`}
+                  >
+                    <div className="space-y-1">
+                      <span className="text-xs font-black text-white block">
+                        {job.siteName}
+                      </span>
+                      <span className="text-[10px] text-dark-450 font-mono block">
+                        Job #: {job.jobNumber}
+                      </span>
+                      <span className="text-[9px] text-violet-400 font-bold block">
+                        Started: {job.entryDate} at {job.startTime}
+                      </span>
+                    </div>
+                    <div className="text-right flex flex-col items-end space-y-1.5">
+                      <span className="px-2.5 py-1 rounded-full bg-violet-500/10 text-violet-400 text-[9px] font-black uppercase tracking-wider">
+                        {job.employeeCount} Checked In
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="p-4 bg-dark-900/40 border border-dark-850 rounded-2xl text-center">
+                <span className="text-[10px] text-dark-500 italic">
+                  No active jobs found under your name.
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Form and search */}
