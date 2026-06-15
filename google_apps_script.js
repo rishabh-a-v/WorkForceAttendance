@@ -15,11 +15,7 @@ function setup() {
   initSheets(ss);
   
   // Explicitly reference DriveApp here to force Google's OAuth permission prompt
-  try {
-    DriveApp.getRootFolder();
-  } catch (e) {
-    Logger.log("Drive authorization check: " + e.message);
-  }
+  DriveApp.getRootFolder();
   
   Logger.log("Setup completed. All required sheets created successfully.");
 }
