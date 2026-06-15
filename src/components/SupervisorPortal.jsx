@@ -77,7 +77,7 @@ export default function SupervisorPortal({ currentUser, onLogout }) {
   const [searchJobNumber, setSearchJobNumber] = useState('');
   const [activeSessionRecords, setActiveSessionRecords] = useState([]);
   const [searchAttempted, setSearchAttempted] = useState(false);
-  const [isEndingSession, setIsEndingSession] = useState(false);
+  const [jobEndSessionActive, setJobEndSessionActive] = useState(false);
 
   // Geolocation trigger
   const fetchLocation = () => {
@@ -319,9 +319,12 @@ export default function SupervisorPortal({ currentUser, onLogout }) {
 
       setGroupScanStatusMsg(`Matching ${detections.length} faces against employee database...`);
       const employeesDb = dbService.getEmployees();
+      const searchDb = currentView === 'job_end'
+        ? employeesDb.filter(emp => activeSessionRecords.some(r => r.employeeName === emp.name || r.employeePhone === emp.mobile))
+        : employeesDb;
 
       const faceCards = await Promise.all(detections.map(async (det, idx) => {
-        const matchResult = await recognizeFace(det.descriptor, employeesDb);
+        const matchResult = await recognizeFace(det.descriptor, searchDb);
         const matchedEmp = matchResult.matchedEmp;
         const confidenceScore = matchedEmp ? Math.round(matchResult.confidence * 100) : 0;
         
@@ -579,46 +582,84 @@ export default function SupervisorPortal({ currentUser, onLogout }) {
       a.jobNumber === searchJobNumber.trim() && 
       !a.endTime
     );
-    setActiveSessionRecords(activeSession);
+    if (activeSession.length > 0) {
+      setSiteName(activeSession[0].siteName);
+      setJobNumber(activeSession[0].jobNumber);
+      setActiveSessionRecords(activeSession);
+      setJobEndSessionActive(true);
+      startGroupCamera('environment');
+    } else {
+      setActiveSessionRecords([]);
+    }
   };
 
   const handleJobEndSubmit = async () => {
-    if (activeSessionRecords.length === 0) return;
-    setIsEndingSession(true);
+    const approvedCheckoutFaces = groupDetectedFaces.filter(f => f.approved && f.matchedEmp);
+    if (approvedCheckoutFaces.length === 0) {
+      alert('You must approve at least one matched employee for checkout.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setGroupScanStatusMsg('Saving checkout records and updating databases...');
 
     try {
       const endTimestamp = new Date().toISOString();
       const endLat = gpsData?.lat ? parseFloat(gpsData.lat) : null;
       const endLon = gpsData?.lon ? parseFloat(gpsData.lon) : null;
 
-      for (const record of activeSessionRecords) {
-        dbService.updateAttendance(record.id, {
-          endTime: endTimestamp,
-          endLatitude: endLat,
-          endLongitude: endLon,
-          attendanceStatus: 'Completed'
-        });
+      let successCount = 0;
+      for (const face of approvedCheckoutFaces) {
+        const activeRecord = activeSessionRecords.find(r => 
+          r.employeeName === face.matchedEmp.name || 
+          r.employeePhone === face.matchedEmp.mobile
+        );
+        if (activeRecord) {
+          const updateRes = dbService.updateAttendance(activeRecord.id, {
+            endTime: endTimestamp,
+            endLatitude: endLat,
+            endLongitude: endLon,
+            attendanceStatus: 'Completed'
+          });
+          if (updateRes.success) {
+            successCount++;
+          }
+        }
       }
 
       dbService.logAction(
-        'Job Session Completed',
+        'Job Session Checkouts',
         currentUser.name,
         null,
-        JSON.stringify({ jobNumber: searchJobNumber, closedRecords: activeSessionRecords.length }),
-        `Ended job session ${searchJobNumber}. Marked check-out coordinates: ${endLat}, ${endLon}.`
+        JSON.stringify({ jobNumber, siteName, checkedOutCount: successCount }),
+        `Checked out ${successCount} employees under Job ${jobNumber || 'N/A'}.`
       );
 
-      alert(`Job session ${searchJobNumber} successfully closed for ${activeSessionRecords.length} employees.`);
-      setSearchJobNumber('');
-      setActiveSessionRecords([]);
-      setSearchAttempted(false);
-      setCurrentView('dashboard');
+      setGroupSuccessMsg(`Successfully checked out ${successCount} employees!`);
+      setTimeout(() => {
+        resetJobEndForm();
+        setCurrentView('dashboard');
+      }, 2000);
     } catch (err) {
       console.error(err);
-      alert('Failed to end attendance session. Please check your connection.');
+      setGroupErrorMsg('Failed to end attendance session. Please check your connection.');
     } finally {
-      setIsEndingSession(false);
+      setIsSubmitting(false);
     }
+  };
+
+  const resetJobEndForm = () => {
+    stopGroupCamera();
+    setSearchJobNumber('');
+    setJobNumber('');
+    setSiteName('');
+    setActiveSessionRecords([]);
+    setSearchAttempted(false);
+    setJobEndSessionActive(false);
+    setGroupScanImage(null);
+    setGroupDetectedFaces([]);
+    setGroupSuccessMsg('');
+    setGroupErrorMsg('');
   };
 
   const getActiveJobs = () => {
@@ -647,6 +688,310 @@ export default function SupervisorPortal({ currentUser, onLogout }) {
     
     return Object.values(jobsMap);
   };
+
+  /* eslint-disable react-hooks/refs */
+  const renderBiometricCapture = () => {
+    return (
+      <div className="space-y-6">
+        {/* Info panel */}
+        <div className={`p-4 border rounded-2xl flex items-start space-x-3 ${
+          currentView === 'job_end' 
+            ? 'bg-rose-500/8 border-rose-500/20' 
+            : 'bg-emerald-500/8 border-emerald-500/20'
+        }`}>
+          <CheckCircle2 className={`h-5 w-5 flex-shrink-0 mt-0.5 ${currentView === 'job_end' ? 'text-rose-400' : 'text-emerald-400'}`} />
+          <div className="text-xs leading-relaxed">
+            <span className="font-bold text-white block">
+              {currentView === 'job_end' ? 'Job End Verification' : 'Job Start Verification'}
+            </span>
+            <span className="text-dark-350 block mt-0.5">Site: {siteName} | Job: {jobNumber || 'N/A'}</span>
+            {currentView === 'job_end' ? (
+              <span className="text-dark-350 block mt-0.5 font-mono">Active Checked In: {activeSessionRecords.length} employees</span>
+            ) : (
+              <span className="text-dark-350 block mt-0.5 font-mono">Start Time: {startTime}</span>
+            )}
+          </div>
+        </div>
+
+        {/* Media Capture Interface */}
+        {!groupScanImage && (
+          <div className="glass-panel rounded-3xl border border-dark-800/80 p-5 space-y-4 shadow-xl flex flex-col items-center">
+            <h3 className="text-xs font-bold text-dark-400 uppercase tracking-widest mb-1">Webcam Capture</h3>
+            
+            {isGroupCameraActive ? (
+              <div className="w-full max-w-lg aspect-video bg-black rounded-2xl overflow-hidden border border-dark-800 relative shadow-inner">
+                <video
+                  ref={groupVideoRef}
+                  className="w-full h-full object-cover transform scale-x-[-1]"
+                  playsInline
+                  muted
+                />
+                
+                {/* Action control badges */}
+                <div className="absolute top-3 right-3 flex items-center space-x-2">
+                  {groupHasTorch && (
+                    <button
+                      onClick={toggleGroupTorch}
+                      className={`p-2 rounded-xl transition ${groupIsTorchOn ? 'bg-amber-400 text-black' : 'bg-dark-900/80 text-white hover:bg-dark-850'}`}
+                      title="Toggle Flashlight"
+                    >
+                      {groupIsTorchOn ? <ZapOff className="h-4 w-4" /> : <Zap className="h-4 w-4" />}
+                    </button>
+                  )}
+                  <button
+                    onClick={switchGroupCamera}
+                    className="p-2 rounded-xl bg-dark-900/80 text-white hover:bg-dark-850 transition"
+                    title="Switch Camera"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="w-full max-w-lg aspect-video bg-dark-950 rounded-2xl flex flex-col items-center justify-center border border-dashed border-dark-800 text-dark-500">
+                <Video className="h-12 w-12 text-dark-600 mb-2" />
+                <span className="text-xs italic">Webcam stream inactive</span>
+              </div>
+            )}
+
+            {/* Buttons */}
+            <div className="w-full max-w-md flex flex-col sm:flex-row gap-3 pt-2">
+              {isGroupCameraActive ? (
+                <button
+                  onClick={captureGroupPhoto}
+                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg flex items-center justify-center space-x-2 transition cursor-pointer"
+                >
+                  <Camera className="h-4 w-4" />
+                  <span>Capture Group Photo</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => startGroupCamera(groupFacingMode)}
+                  className="flex-1 py-3 bg-dark-900 hover:bg-dark-850 border border-dark-800 text-white font-bold text-xs rounded-xl flex items-center justify-center space-x-2 transition cursor-pointer"
+                >
+                  <Video className="h-4 w-4 text-emerald-400" />
+                  <span>Activate Camera Stream</span>
+                </button>
+              )}
+
+              {/* Fallback image upload */}
+              <div className="flex-1 relative">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileUpload}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+                <button className="w-full py-3 bg-dark-900 hover:bg-dark-850 border border-dark-800 text-dark-300 hover:text-white font-bold text-xs rounded-xl flex items-center justify-center space-x-2 transition pointer-events-none">
+                  <Camera className="h-4 w-4 text-violet-400" />
+                  <span>Upload Image File</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Scanning status loading feedback */}
+        {isGroupScanning && (
+          <div className="p-8 text-center glass-panel rounded-3xl border border-dark-800 shadow-xl space-y-4 animate-pulse">
+            <RefreshCw className="h-8 w-8 text-violet-500 animate-spin mx-auto" />
+            <div className="space-y-1.5">
+              <span className="font-bold text-xs text-white block">Analyzing Group Photo</span>
+              <span className="text-[10px] text-dark-450 block">{groupScanStatusMsg}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Success Alert */}
+        {groupSuccessMsg && (
+          <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-emerald-400 text-xs flex items-start space-x-2.5 leading-relaxed">
+            <CheckCircle2 className="h-5 w-5 flex-shrink-0 mt-0.5 text-emerald-400" />
+            <div className="flex-1">
+              <span className="font-bold text-emerald-300 block">Success</span>
+              <span className="block mt-0.5">{groupSuccessMsg}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Error Alert */}
+        {groupErrorMsg && (
+          <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-400 text-xs flex items-start space-x-2.5 leading-relaxed">
+            <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5 text-rose-500" />
+            <div className="flex-1">
+              <span className="font-bold text-rose-300 block">Processing Issue</span>
+              <span className="block mt-0.5">{groupErrorMsg}</span>
+              <button
+                onClick={() => {
+                  setGroupErrorMsg('');
+                  setGroupScanImage(null);
+                  startGroupCamera(groupFacingMode);
+                }}
+                className="text-[10px] text-rose-300 hover:underline mt-2 font-bold block cursor-pointer"
+              >
+                Try capturing or uploading again
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Captured Photo Frame & Card Match Feed */}
+        {groupScanImage && !isGroupScanning && !groupErrorMsg && (
+          <div className="space-y-6">
+            {/* Image Preview */}
+            <div className="glass-panel rounded-3xl border border-dark-800/80 p-4 shadow-xl flex flex-col items-center">
+              <img
+                src={groupScanImage}
+                alt="Captured Group Scan"
+                className="w-full max-w-lg rounded-2xl border border-dark-850 object-contain max-h-72 shadow-md"
+              />
+              <button
+                onClick={() => {
+                  setGroupScanImage(null);
+                  setGroupDetectedFaces([]);
+                  startGroupCamera(groupFacingMode);
+                }}
+                className="text-[10px] text-dark-500 hover:text-white transition mt-3 font-semibold flex items-center space-x-1 cursor-pointer"
+              >
+                <RefreshCw className="h-3 w-3" />
+                <span>Retake Group Photo</span>
+              </button>
+            </div>
+
+            {/* Face List Header Controls */}
+            {groupDetectedFaces.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-dark-900/50 p-4 border border-dark-850 rounded-2xl">
+                  <div>
+                    <h2 className="text-sm font-black text-white">Detected Faces ({groupDetectedFaces.length})</h2>
+                    <p className="text-[10px] text-dark-400">Review and approve attendance marks manually</p>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={handleApproveAll}
+                      className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-bold rounded-lg border border-emerald-500/20 transition cursor-pointer"
+                    >
+                      Approve All
+                    </button>
+                    <button
+                      onClick={handleRejectAll}
+                      className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[10px] font-bold rounded-lg border border-rose-500/20 transition cursor-pointer"
+                    >
+                      Reject All
+                    </button>
+                  </div>
+                </div>
+
+                {/* Card Feed Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {groupDetectedFaces.map(face => (
+                    <div 
+                      key={face.id}
+                      className={`glass-panel rounded-2xl border p-4 flex items-start space-x-4 shadow-md transition ${face.approved ? 'border-emerald-500/50 bg-emerald-500/4' : 'border-dark-800'}`}
+                    >
+                      {/* Face Crop Thumbnail */}
+                      <img
+                        src={face.avatar}
+                        alt="Face crop"
+                        className="h-16 w-16 rounded-xl border border-dark-800 bg-dark-950 object-cover flex-shrink-0"
+                      />
+                      
+                      {/* Metadata Details */}
+                      <div className="flex-1 min-w-0 space-y-1.5 text-left">
+                        {face.matchedEmp ? (
+                          <>
+                            <div className="truncate font-bold text-xs text-white">{face.matchedEmp.name}</div>
+                            <div className="truncate text-[10px] text-dark-450 font-medium">Mob: {face.matchedEmp.mobile}</div>
+                            <div className="flex items-center space-x-2">
+                              <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[9px] font-bold">Recognized</span>
+                              <span className="text-[9px] text-dark-500 font-mono">Conf: {face.confidence}%</span>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="font-bold text-xs text-amber-400">Unknown Employee</div>
+                            <div className="flex items-center space-x-2 mt-1">
+                              <span className="px-2 py-0.5 rounded bg-dark-800 text-dark-400 text-[9px] font-bold">
+                                {face.status === 'Not Checked In' ? 'Not Checked In' : 'Unrecognized'}
+                              </span>
+                            </div>
+                          </>
+                        )}
+
+                        {/* Interactive controls */}
+                        <div className="pt-2 flex flex-wrap gap-2">
+                          {face.matchedEmp ? (
+                            <>
+                              {face.approved ? (
+                                <button
+                                  onClick={() => handleRejectFace(face.id)}
+                                  className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 text-[10px] font-bold rounded-lg transition flex items-center space-x-1 cursor-pointer"
+                                >
+                                  <XCircle className="h-3 w-3" />
+                                  <span>Reject</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleApproveFace(face.id)}
+                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-lg transition flex items-center space-x-1 cursor-pointer"
+                                >
+                                  <Check className="h-3 w-3" />
+                                  <span>Approve</span>
+                                </button>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => openAssignModal(face.id)}
+                                className="px-2 py-1 bg-dark-900 hover:bg-dark-850 border border-dark-800 text-violet-400 text-[9px] font-bold rounded-lg transition cursor-pointer"
+                              >
+                                Assign Existing
+                              </button>
+                              {currentView !== 'job_end' && (
+                                <button
+                                  onClick={() => openRegisterModal(face.id)}
+                                  className="px-2 py-1 bg-violet-600/10 hover:bg-violet-600/20 border border-violet-500/20 text-violet-300 text-[9px] font-bold rounded-lg transition cursor-pointer"
+                                >
+                                  Register New
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Save session trigger */}
+                <button
+                  onClick={currentView === 'job_end' ? handleJobEndSubmit : handleJobStartSubmit}
+                  disabled={isSubmitting || groupDetectedFaces.filter(f => f.approved).length === 0}
+                  className={`w-full py-4 bg-gradient-to-r text-white font-extrabold text-sm rounded-2xl shadow-lg flex items-center justify-center space-x-2 transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
+                    currentView === 'job_end' 
+                      ? 'from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500' 
+                      : 'from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500'
+                  }`}
+                >
+                  {isSubmitting ? (
+                    <RefreshCw className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <span>
+                      {currentView === 'job_end' 
+                        ? `End Attendance & Check Out (${groupDetectedFaces.filter(f => f.approved).length} Employees)`
+                        : `Save Attendance & Start Job (${groupDetectedFaces.filter(f => f.approved).length} Employees)`
+                      }
+                    </span>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+  /* eslint-enable react-hooks/refs */
 
   return (
     <div className="flex-1 flex flex-col overflow-y-auto px-4 py-6 md:p-8 select-none relative" style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}>
@@ -808,295 +1153,31 @@ export default function SupervisorPortal({ currentUser, onLogout }) {
               </button>
             </div>
           ) : (
-            /* Biometric Capture View */
-            <div className="space-y-6">
-              {/* Info panel */}
-              <div className="p-4 bg-emerald-500/8 border border-emerald-500/20 rounded-2xl flex items-start space-x-3">
-                <CheckCircle2 className="h-5 w-5 text-emerald-400 flex-shrink-0 mt-0.5" />
-                <div className="text-xs leading-relaxed">
-                  <span className="font-bold text-white block">Job Session Active</span>
-                  <span className="text-dark-350 block mt-0.5">Site: {siteName} | Job: {jobNumber || 'N/A'}</span>
-                  <span className="text-dark-350 block mt-0.5 font-mono">Start Time: {startTime}</span>
-                </div>
-              </div>
-
-              {/* Media Capture Interface */}
-              {!groupScanImage && (
-                <div className="glass-panel rounded-3xl border border-dark-800/80 p-5 space-y-4 shadow-xl flex flex-col items-center">
-                  <h3 className="text-xs font-bold text-dark-400 uppercase tracking-widest mb-1">Webcam Capture</h3>
-                  
-                  {isGroupCameraActive ? (
-                    <div className="w-full max-w-lg aspect-video bg-black rounded-2xl overflow-hidden border border-dark-800 relative shadow-inner">
-                      <video
-                        ref={groupVideoRef}
-                        className="w-full h-full object-cover transform scale-x-[-1]"
-                        playsInline
-                        muted
-                      />
-                      
-                      {/* Action control badges */}
-                      <div className="absolute top-3 right-3 flex items-center space-x-2">
-                        {groupHasTorch && (
-                          <button
-                            onClick={toggleGroupTorch}
-                            className={`p-2 rounded-xl transition ${groupIsTorchOn ? 'bg-amber-400 text-black' : 'bg-dark-900/80 text-white hover:bg-dark-850'}`}
-                            title="Toggle Flashlight"
-                          >
-                            {groupIsTorchOn ? <ZapOff className="h-4 w-4" /> : <Zap className="h-4 w-4" />}
-                          </button>
-                        )}
-                        <button
-                          onClick={switchGroupCamera}
-                          className="p-2 rounded-xl bg-dark-900/80 text-white hover:bg-dark-850 transition"
-                          title="Switch Camera"
-                        >
-                          <RefreshCw className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="w-full max-w-lg aspect-video bg-dark-950 rounded-2xl flex flex-col items-center justify-center border border-dashed border-dark-800 text-dark-500">
-                      <Video className="h-12 w-12 text-dark-600 mb-2" />
-                      <span className="text-xs italic">Webcam stream inactive</span>
-                    </div>
-                  )}
-
-                  {/* Buttons */}
-                  <div className="w-full max-w-md flex flex-col sm:flex-row gap-3 pt-2">
-                    {isGroupCameraActive ? (
-                      <button
-                        onClick={captureGroupPhoto}
-                        className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg flex items-center justify-center space-x-2 transition cursor-pointer"
-                      >
-                        <Camera className="h-4 w-4" />
-                        <span>Capture Group Photo</span>
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => startGroupCamera(groupFacingMode)}
-                        className="flex-1 py-3 bg-dark-900 hover:bg-dark-850 border border-dark-800 text-white font-bold text-xs rounded-xl flex items-center justify-center space-x-2 transition cursor-pointer"
-                      >
-                        <Video className="h-4 w-4 text-emerald-400" />
-                        <span>Activate Camera Stream</span>
-                      </button>
-                    )}
-
-                    {/* Fallback image upload */}
-                    <div className="flex-1 relative">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleFileUpload}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                      />
-                      <button className="w-full py-3 bg-dark-900 hover:bg-dark-850 border border-dark-800 text-dark-300 hover:text-white font-bold text-xs rounded-xl flex items-center justify-center space-x-2 transition pointer-events-none">
-                        <Camera className="h-4 w-4 text-violet-400" />
-                        <span>Upload Image File</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Neural Network Scanner Status */}
-              {isGroupScanning && (
-                <div className="glass-panel rounded-3xl border border-dark-800/80 p-6 flex flex-col items-center justify-center text-center space-y-4 shadow-xl">
-                  <RefreshCw className="h-10 w-10 text-emerald-400 animate-spin" />
-                  <div>
-                    <h3 className="text-sm font-bold text-white">Biometric Face Recognition</h3>
-                    <p className="text-xs text-dark-400 mt-1">{groupScanStatusMsg}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Error Alert */}
-              {groupErrorMsg && (
-                <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-400 text-xs flex items-start space-x-2.5 leading-relaxed">
-                  <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5 text-rose-500" />
-                  <div className="flex-1">
-                    <span className="font-bold text-rose-300 block">Processing Issue</span>
-                    <span className="block mt-0.5">{groupErrorMsg}</span>
-                    <button
-                      onClick={() => {
-                        setGroupErrorMsg('');
-                        setGroupScanImage(null);
-                        startGroupCamera(groupFacingMode);
-                      }}
-                      className="text-[10px] text-rose-300 hover:underline mt-2 font-bold block cursor-pointer"
-                    >
-                      Try capturing or uploading again
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Captured Photo Frame & Card Match Feed */}
-              {groupScanImage && !isGroupScanning && !groupErrorMsg && (
-                <div className="space-y-6">
-                  {/* Image Preview */}
-                  <div className="glass-panel rounded-3xl border border-dark-800/80 p-4 shadow-xl flex flex-col items-center">
-                    <img
-                      src={groupScanImage}
-                      alt="Captured Group Scan"
-                      className="w-full max-w-lg rounded-2xl border border-dark-850 object-contain max-h-72 shadow-md"
-                    />
-                    <button
-                      onClick={() => {
-                        setGroupScanImage(null);
-                        setGroupDetectedFaces([]);
-                        startGroupCamera(groupFacingMode);
-                      }}
-                      className="text-[10px] text-dark-500 hover:text-white transition mt-3 font-semibold flex items-center space-x-1 cursor-pointer"
-                    >
-                      <RefreshCw className="h-3 w-3" />
-                      <span>Retake Group Photo</span>
-                    </button>
-                  </div>
-
-                  {/* Face List Header Controls */}
-                  {groupDetectedFaces.length > 0 && (
-                    <div className="space-y-4">
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-dark-900/50 p-4 border border-dark-850 rounded-2xl">
-                        <div>
-                          <h2 className="text-sm font-black text-white">Detected Faces ({groupDetectedFaces.length})</h2>
-                          <p className="text-[10px] text-dark-400">Review and approve attendance marks manually</p>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <button
-                            onClick={handleApproveAll}
-                            className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-bold rounded-lg border border-emerald-500/20 transition cursor-pointer"
-                          >
-                            Approve All
-                          </button>
-                          <button
-                            onClick={handleRejectAll}
-                            className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[10px] font-bold rounded-lg border border-rose-500/20 transition cursor-pointer"
-                          >
-                            Reject All
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Card Feed Grid */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {groupDetectedFaces.map(face => (
-                          <div 
-                            key={face.id}
-                            className={`glass-panel rounded-2xl border p-4 flex items-start space-x-4 shadow-md transition ${face.approved ? 'border-emerald-500/50 bg-emerald-500/4' : 'border-dark-800'}`}
-                          >
-                            {/* Face Crop Thumbnail */}
-                            <img
-                              src={face.avatar}
-                              alt="Face crop"
-                              className="h-16 w-16 rounded-xl border border-dark-800 bg-dark-950 object-cover flex-shrink-0"
-                            />
-                            
-                            {/* Metadata Details */}
-                            <div className="flex-1 min-w-0 space-y-1.5 text-left">
-                              {face.matchedEmp ? (
-                                <>
-                                  <div className="truncate font-bold text-xs text-white">{face.matchedEmp.name}</div>
-                                  <div className="truncate text-[10px] text-dark-450 font-medium">Mob: {face.matchedEmp.mobile}</div>
-                                  <div className="flex items-center space-x-2">
-                                    <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[9px] font-bold">Recognized</span>
-                                    <span className="text-[9px] text-dark-500 font-mono">Conf: {face.confidence}%</span>
-                                  </div>
-                                </>
-                              ) : (
-                                <>
-                                  <div className="font-bold text-xs text-amber-400">Unknown Employee</div>
-                                  <div className="flex items-center space-x-2 mt-1">
-                                    <span className="px-2 py-0.5 rounded bg-dark-800 text-dark-400 text-[9px] font-bold">Unrecognized</span>
-                                  </div>
-                                </>
-                              )}
-
-                              {/* Interactive controls */}
-                              <div className="pt-2 flex flex-wrap gap-2">
-                                {face.matchedEmp ? (
-                                  <>
-                                    {face.approved ? (
-                                      <button
-                                        onClick={() => handleRejectFace(face.id)}
-                                        className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 text-[10px] font-bold rounded-lg transition flex items-center space-x-1 cursor-pointer"
-                                      >
-                                        <XCircle className="h-3 w-3" />
-                                        <span>Reject</span>
-                                      </button>
-                                    ) : (
-                                      <button
-                                        onClick={() => handleApproveFace(face.id)}
-                                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-lg transition flex items-center space-x-1 cursor-pointer"
-                                      >
-                                        <Check className="h-3 w-3" />
-                                        <span>Approve</span>
-                                      </button>
-                                    )}
-                                  </>
-                                ) : (
-                                  <>
-                                    <button
-                                      onClick={() => openAssignModal(face.id)}
-                                      className="px-2 py-1 bg-dark-900 hover:bg-dark-850 border border-dark-800 text-violet-400 text-[9px] font-bold rounded-lg transition cursor-pointer"
-                                    >
-                                      Assign Existing
-                                    </button>
-                                    <button
-                                      onClick={() => openRegisterModal(face.id)}
-                                      className="px-2 py-1 bg-violet-600/10 hover:bg-violet-600/20 border border-violet-500/20 text-violet-300 text-[9px] font-bold rounded-lg transition cursor-pointer"
-                                    >
-                                      Register New
-                                    </button>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Success overlay */}
-                      {groupSuccessMsg && (
-                        <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-emerald-400 text-xs text-center font-bold">
-                          {groupSuccessMsg}
-                        </div>
-                      )}
-
-                      {/* Final Submit Trigger */}
-                      <button
-                        onClick={handleJobStartSubmit}
-                        disabled={isSubmitting || groupDetectedFaces.filter(f => f.approved).length === 0}
-                        className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-extrabold text-sm rounded-2xl shadow-lg flex items-center justify-center space-x-2 transition cursor-pointer"
-                      >
-                        {isSubmitting ? (
-                          <RefreshCw className="h-5 w-5 animate-spin" />
-                        ) : (
-                          <span>Submit Attendance ({groupDetectedFaces.filter(f => f.approved).length} Approved)</span>
-                        )}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+            renderBiometricCapture()
           )}
-
-          {/* Hidden utility canvas for webcam draws */}
-          <canvas ref={groupCanvasRef} className="hidden" />
         </div>
       )}
 
       {/* ─── SCREEN 4: JOB END ATTENDANCE ─── */}
       {currentView === 'job_end' && (
-        <div className="max-w-xl mx-auto w-full space-y-6 animate-in slide-in-from-bottom duration-300">
+        <div className={`mx-auto w-full space-y-6 animate-in slide-in-from-bottom duration-300 ${
+          jobEndSessionActive ? 'max-w-3xl' : 'max-w-xl'
+        }`}>
           {/* Header */}
           <div className="flex items-center space-x-3">
             <button
               onClick={() => {
-                setSearchJobNumber('');
-                setActiveSessionRecords([]);
-                setSearchAttempted(false);
-                setCurrentView('dashboard');
+                if (jobEndSessionActive) {
+                  stopGroupCamera();
+                  setGroupScanImage(null);
+                  setGroupDetectedFaces([]);
+                  setJobEndSessionActive(false);
+                } else {
+                  setSearchJobNumber('');
+                  setActiveSessionRecords([]);
+                  setSearchAttempted(false);
+                  setCurrentView('dashboard');
+                }
               }}
               className="p-2 bg-dark-900 border border-dark-800 rounded-xl text-dark-300 hover:text-white transition cursor-pointer"
             >
@@ -1104,147 +1185,106 @@ export default function SupervisorPortal({ currentUser, onLogout }) {
             </button>
             <div>
               <h1 className="text-xl font-black text-white">Job End Attendance</h1>
-              <p className="text-xs text-dark-450">Close the attendance session and record departure timestamps</p>
+              <p className="text-xs text-dark-450">
+                {jobEndSessionActive 
+                  ? 'Capture group photograph to clock-out employees' 
+                  : 'Close the attendance session and record departure timestamps'
+                }
+              </p>
             </div>
           </div>
 
-          {/* Active Jobs List */}
-          <div className="space-y-3">
-            <h2 className="text-[10px] font-bold text-dark-450 uppercase tracking-wider">
-              Active Jobs under your supervision
-            </h2>
-            
-            {getActiveJobs().length > 0 ? (
-              <div className="grid grid-cols-1 gap-3">
-                {getActiveJobs().map((job) => (
-                  <button
-                    key={job.jobNumber}
-                    onClick={() => {
-                      setSearchJobNumber(job.jobNumber);
-                      setActiveSessionRecords(job.records);
-                      setSearchAttempted(true);
-                    }}
-                    className={`w-full text-left glass-panel rounded-2xl border transition p-4 flex items-center justify-between hover:scale-[1.01] active:scale-[0.99] cursor-pointer ${
-                      searchJobNumber === job.jobNumber 
-                        ? 'border-violet-500/80 bg-violet-500/8 shadow-violet-500/5' 
-                        : 'border-dark-800/80 hover:border-dark-700 bg-dark-900/40'
-                    }`}
-                  >
-                    <div className="space-y-1">
-                      <span className="text-xs font-black text-white block">
-                        {job.siteName}
-                      </span>
-                      <span className="text-[10px] text-dark-450 font-mono block">
-                        Job #: {job.jobNumber}
-                      </span>
-                      <span className="text-[9px] text-violet-400 font-bold block">
-                        Started: {job.entryDate} at {job.startTime}
-                      </span>
-                    </div>
-                    <div className="text-right flex flex-col items-end space-y-1.5">
-                      <span className="px-2.5 py-1 rounded-full bg-violet-500/10 text-violet-400 text-[9px] font-black uppercase tracking-wider">
-                        {job.employeeCount} Checked In
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="p-4 bg-dark-900/40 border border-dark-850 rounded-2xl text-center">
-                <span className="text-[10px] text-dark-500 italic">
-                  No active jobs found under your name.
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Form and search */}
-          <div className="glass-panel rounded-3xl border border-dark-800/80 p-5 sm:p-6 space-y-5 shadow-xl">
-            <div className="space-y-4 text-xs">
-              {/* Job Number Search */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-dark-400 uppercase tracking-wider">
-                  Job Number <span className="text-rose-500">*</span>
-                </label>
-                <div className="relative">
-                  <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-dark-500 pointer-events-none" />
-                  <input
-                    type="text"
-                    placeholder="Enter Job or Work Order ID to search"
-                    value={searchJobNumber}
-                    onChange={(e) => setSearchJobNumber(e.target.value)}
-                    className="w-full bg-dark-950 border border-dark-800 rounded-xl pl-10 pr-4 py-3 text-xs text-white focus:outline-none focus:border-violet-500"
-                    required
-                  />
-                </div>
-              </div>
-
-              <button
-                onClick={handleJobSearch}
-                className="w-full py-3 bg-dark-900 hover:bg-dark-850 border border-dark-800 text-white font-bold text-xs rounded-xl flex items-center justify-center space-x-2 transition cursor-pointer"
-              >
-                <Search className="h-4 w-4" />
-                <span>Search & Load Active Session</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Session Load Results */}
-          {searchAttempted && (
-            <div className="space-y-4 animate-in fade-in duration-200">
-              {activeSessionRecords.length > 0 ? (
-                <div className="space-y-4">
-                  {/* Results list */}
-                  <div className="glass-panel rounded-3xl border border-dark-800/80 p-5 space-y-4 shadow-xl">
-                    <div className="flex items-center justify-between border-b border-dark-850 pb-3">
-                      <div>
-                        <h3 className="font-bold text-xs text-white">Active Session Detected</h3>
-                        <p className="text-[10px] text-dark-450 mt-0.5">Found {activeSessionRecords.length} employees checked in</p>
-                      </div>
-                      <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-[9px] font-black uppercase tracking-wider">Open</span>
-                    </div>
-
-                    <div className="max-h-60 overflow-y-auto divide-y divide-dark-850 pr-1 space-y-3">
-                      {activeSessionRecords.map(record => (
-                        <div key={record.id} className="flex items-center justify-between py-2 text-xs">
-                          <div>
-                            <span className="font-bold text-white block">{record.employeeName}</span>
-                            <span className="text-[10px] text-dark-500 block">Mob: {record.employeePhone}</span>
-                          </div>
-                          <div className="text-right">
-                            <span className="text-[10px] text-dark-450 block font-mono">In: {new Date(record.startTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                          </div>
+          {jobEndSessionActive ? (
+            renderBiometricCapture()
+          ) : (
+            <>
+              {/* Active Jobs List */}
+              <div className="space-y-3">
+                <h2 className="text-[10px] font-bold text-dark-450 uppercase tracking-wider">
+                  Active Jobs under your supervision
+                </h2>
+                
+                {getActiveJobs().length > 0 ? (
+                  <div className="grid grid-cols-1 gap-3">
+                    {getActiveJobs().map((job) => (
+                      <button
+                        key={job.jobNumber}
+                        onClick={() => {
+                          setSiteName(job.siteName);
+                          setJobNumber(job.jobNumber);
+                          setSearchJobNumber(job.jobNumber);
+                          setActiveSessionRecords(job.records);
+                          setSearchAttempted(true);
+                          setJobEndSessionActive(true);
+                          startGroupCamera('environment');
+                        }}
+                        className={`w-full text-left glass-panel rounded-2xl border transition p-4 flex items-center justify-between hover:scale-[1.01] active:scale-[0.99] cursor-pointer ${
+                          searchJobNumber === job.jobNumber 
+                            ? 'border-violet-500/80 bg-violet-500/8 shadow-violet-500/5' 
+                            : 'border-dark-800/80 hover:border-dark-700 bg-dark-900/40'
+                        }`}
+                      >
+                        <div className="space-y-1">
+                          <span className="text-xs font-black text-white block">
+                            {job.siteName}
+                          </span>
+                          <span className="text-[10px] text-dark-450 font-mono block">
+                            Job #: {job.jobNumber}
+                          </span>
+                          <span className="text-[9px] text-violet-400 font-bold block">
+                            Started: {job.entryDate} at {job.startTime}
+                          </span>
                         </div>
-                      ))}
-                    </div>
-
-                    {/* Geolocation feedback */}
-                    <div className="p-3 bg-dark-950 border border-dark-850 rounded-xl space-y-1">
-                      <span className="text-[9px] font-bold text-dark-450 uppercase tracking-wider block">End Coordinates Capture</span>
-                      {gpsData ? (
-                        <div className="text-[10px] text-dark-300 font-mono">
-                          Lat: {gpsData.lat} | Lon: {gpsData.lon}
+                        <div className="text-right flex flex-col items-end space-y-1.5">
+                          <span className="px-2.5 py-1 rounded-full bg-violet-500/10 text-violet-400 text-[9px] font-black uppercase tracking-wider">
+                            {job.employeeCount} Checked In
+                          </span>
                         </div>
-                      ) : (
-                        <span className="text-[10px] text-dark-500 italic block">Retrieving location...</span>
-                      )}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-4 bg-dark-900/40 border border-dark-850 rounded-2xl text-center">
+                    <span className="text-[10px] text-dark-500 italic">
+                      No active jobs found under your name.
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Form and search */}
+              <div className="glass-panel rounded-3xl border border-dark-800/80 p-5 sm:p-6 space-y-5 shadow-xl">
+                <div className="space-y-4 text-xs">
+                  {/* Job Number Search */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-dark-400 uppercase tracking-wider">
+                      Job Number <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-dark-500 pointer-events-none" />
+                      <input
+                        type="text"
+                        placeholder="Enter Job or Work Order ID to search"
+                        value={searchJobNumber}
+                        onChange={(e) => setSearchJobNumber(e.target.value)}
+                        className="w-full bg-dark-950 border border-dark-800 rounded-xl pl-10 pr-4 py-3 text-xs text-white focus:outline-none focus:border-violet-500"
+                        required
+                      />
                     </div>
                   </div>
 
-                  {/* End Session Action button */}
                   <button
-                    onClick={handleJobEndSubmit}
-                    disabled={isEndingSession}
-                    className="w-full py-4 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-extrabold text-sm rounded-2xl shadow-lg flex items-center justify-center space-x-2 transition cursor-pointer"
+                    onClick={handleJobSearch}
+                    className="w-full py-3 bg-dark-900 hover:bg-dark-850 border border-dark-800 text-white font-bold text-xs rounded-xl flex items-center justify-center space-x-2 transition cursor-pointer"
                   >
-                    {isEndingSession ? (
-                      <RefreshCw className="h-5 w-5 animate-spin" />
-                    ) : (
-                      <span>End Attendance & Check Out ({activeSessionRecords.length} Employees)</span>
-                    )}
+                    <Search className="h-4 w-4" />
+                    <span>Search & Load Active Session</span>
                   </button>
                 </div>
-              ) : (
+              </div>
+
+              {/* Session Load Results */}
+              {searchAttempted && activeSessionRecords.length === 0 && (
                 <div className="p-6 bg-rose-500/5 border border-rose-500/10 rounded-3xl text-center shadow-md space-y-2">
                   <AlertCircle className="h-8 w-8 text-rose-500 mx-auto" />
                   <h3 className="font-bold text-xs text-rose-400">No Session Found</h3>
@@ -1253,7 +1293,7 @@ export default function SupervisorPortal({ currentUser, onLogout }) {
                   </p>
                 </div>
               )}
-            </div>
+            </>
           )}
         </div>
       )}
@@ -1268,10 +1308,13 @@ export default function SupervisorPortal({ currentUser, onLogout }) {
             </p>
 
             <div className="max-h-64 overflow-y-auto divide-y divide-dark-850 pr-1 space-y-2">
-              {employees.length > 0 ? (
-                employees
-                  .filter(emp => !groupDetectedFaces.some(f => f.matchedEmp && f.matchedEmp.id === emp.id))
-                  .map(emp => (
+              {(() => {
+                const candidates = currentView === 'job_end'
+                  ? employees.filter(emp => activeSessionRecords.some(r => r.employeeName === emp.name || r.employeePhone === emp.mobile))
+                  : employees;
+                const filtered = candidates.filter(emp => !groupDetectedFaces.some(f => f.matchedEmp && f.matchedEmp.id === emp.id));
+                return filtered.length > 0 ? (
+                  filtered.map(emp => (
                     <button
                       key={emp.id}
                       onClick={() => handleAssignConfirm(emp)}
@@ -1288,9 +1331,10 @@ export default function SupervisorPortal({ currentUser, onLogout }) {
                       </div>
                     </button>
                   ))
-              ) : (
-                <div className="text-center py-4 text-xs text-dark-500 italic">No employees found.</div>
-              )}
+                ) : (
+                  <div className="text-center py-4 text-xs text-dark-500 italic">No employees found.</div>
+                );
+              })()}
             </div>
 
             <button
@@ -1365,6 +1409,8 @@ export default function SupervisorPortal({ currentUser, onLogout }) {
           </div>
         </div>
       )}
+      {/* Hidden utility canvas for webcam draws */}
+      <canvas ref={groupCanvasRef} className="hidden" />
     </div>
   );
 }
