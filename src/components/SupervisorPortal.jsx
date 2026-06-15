@@ -13,7 +13,8 @@ import {
   RefreshCw,
   Zap,
   ZapOff,
-  StopCircle
+  StopCircle,
+  LogOut
 } from 'lucide-react';
 import { dbService } from '../db/dbService';
 import { 
@@ -33,7 +34,7 @@ const generateRandomId = (prefix) => {
 // Preset shift templates representing group shifts (essential for simulation/testing)
 
 
-export default function SupervisorPortal({ currentUser }) {
+export default function SupervisorPortal({ currentUser, onLogout }) {
   const [employees, setEmployees] = useState(() => dbService.getEmployees());
 
   // Group Scanner States
@@ -705,6 +706,14 @@ export default function SupervisorPortal({ currentUser }) {
             title="Refresh scanner"
           >
             <RefreshCw className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => onLogout?.()}
+            className="flex items-center space-x-2 px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 text-xs font-bold rounded-xl transition cursor-pointer"
+            title="Logout"
+          >
+            <LogOut className="h-4 w-4" />
+            <span className="hidden sm:inline">Logout</span>
           </button>
         </div>
       </div>
