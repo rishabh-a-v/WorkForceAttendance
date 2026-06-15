@@ -36,6 +36,10 @@ export default function App() {
   }
 
   return (
-    <SupervisorPortal currentUser={currentUser} onLogout={handleLogout} />
+    <div className="flex h-[100dvh] w-screen bg-dark-950 overflow-hidden text-dark-50 select-none flex-col">
+      <main className="flex-1 flex flex-col overflow-hidden bg-gradient-to-br from-dark-950 via-dark-900 to-dark-950">
+        <SupervisorPortal currentUser={currentUser} onLogout={handleLogout} />
+      </main>
+    </div>
   );
 }
