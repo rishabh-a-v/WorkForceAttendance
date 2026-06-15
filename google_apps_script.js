@@ -75,6 +75,15 @@ function processAction(payload) {
         payload.croppedFace = saveBase64ImageToDrive(payload.croppedFace, filename);
       }
       result = saveRow(ss.getSheetByName('Photos') || createPhotosSheet(ss), ['id', 'attendanceId', 'originalPhoto', 'croppedFace', 'timestamp'], payload);
+      
+      // Also link the generated Drive URLs back to the matching row in the Attendance sheet
+      const attSheet = ss.getSheetByName('Attendance');
+      if (attSheet && payload.attendanceId) {
+        updateRow(attSheet, HEADERS.Attendance, payload.attendanceId, {
+          originalPhotoUrl: payload.originalPhoto,
+          croppedFaceUrl: payload.croppedFace
+        });
+      }
       break;
     case 'getPhotos':
       result = readSheet(ss.getSheetByName('Photos') || createPhotosSheet(ss), ['id', 'attendanceId', 'originalPhoto', 'croppedFace', 'timestamp']);
