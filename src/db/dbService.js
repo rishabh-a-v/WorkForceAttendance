@@ -51,7 +51,7 @@ export const updateWorksiteCoords = (lat, lon) => {
 // server. localStorage is still used as the immediate cache so all existing
 // synchronous calls continue to work without any changes elsewhere.
 
-const BACKEND_PROVIDER = import.meta.env.VITE_BACKEND_PROVIDER || 'google-sheets';
+const BACKEND_PROVIDER = import.meta.env.VITE_BACKEND_PROVIDER || 'hybrid';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
@@ -532,7 +532,8 @@ const syncFromServer = async () => {
       WORKSITE.LONGITUDE = ws.LONGITUDE;
       WORKSITE.RADIUS_METERS = ws.RADIUS_METERS;
     }
-    console.log('[WorkForce] ✓ Synced from backend:', API_BASE);
+    const activeProvider = BACKEND_PROVIDER === 'hybrid' ? 'Supabase (Hybrid Primary)' : BACKEND_PROVIDER;
+    console.log('[WorkForce] ✓ Synced from backend:', activeProvider);
   } catch (e) {
     console.warn('[WorkForce] Backend sync failed — using localStorage fallback:', e);
   }
