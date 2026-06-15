@@ -1,7 +1,7 @@
 // Google Apps Script Backend for WorkForce Attendance
 // Deploy this as a Web App: Execute as "Me", Access: "Anyone".
 const SPREADSHEET_ID = '1tBWz2uM_KDa09n0pOTMri99nfEjhwLpDJWGuGddFtt8'; // Paste your Google Spreadsheet ID here (found in your Google Sheet URL)
-const DRIVE_FOLDER_ID = '1nZMJ1PuI13WkhJkjlTsakF655i8QOuav'; // Paste your Google Drive Folder ID here to save photos to a specific folder
+const DRIVE_FOLDER_ID = ''; // Paste your Google Drive Folder ID here to save photos to a specific folder, or leave empty to auto-create
 
 const HEADERS = {
   Employees: ['id', 'name', 'designation', 'department', 'mobile', 'joinDate', 'status', 'role', 'password', 'registeredPhotos', 'biometrics'],
@@ -417,6 +417,21 @@ function saveBase64ImageToDrive(base64Data, filename) {
     return 'https://drive.google.com/file/d/' + file.getId() + '/view?usp=drivesdk';
   } catch (error) {
     Logger.log("Failed to save image to Drive: " + error.message);
+    try {
+      const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+      const auditSheet = ss.getSheetByName('AuditLogs');
+      if (auditSheet) {
+        saveRow(auditSheet, HEADERS.AuditLogs, {
+          id: 'ERR' + Math.floor(100000 + Math.random() * 900000),
+          actionType: 'Drive Upload Error',
+          user: 'System Engine',
+          timestamp: new Date().toISOString(),
+          remarks: 'Failed to save base64 to Drive. Filename: ' + filename + '. Error: ' + error.message
+        });
+      }
+    } catch (logErr) {
+      // Ignore logging error
+    }
     return base64Data; // Return base64 payload as fallback on failure
   }
 }
